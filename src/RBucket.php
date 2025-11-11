@@ -85,16 +85,11 @@ class RBucket
      * @param mixed $value
      * @param int $timeToLive Time to live in milliseconds
      */
-    public function set($value, int $timeToLive = 0): void
+    public function setWithTTL($value, int $timeToLive): void
     {
         $encoded = $this->encodeValue($value);
-        
-        if ($timeToLive > 0) {
-            $ttl = (int)ceil($timeToLive / 1000);
-            $this->redis->setex($this->name, $ttl, $encoded);
-        } else {
-            $this->redis->set($this->name, $encoded);
-        }
+        $ttl = (int)ceil($timeToLive / 1000);
+        $this->redis->setex($this->name, $ttl, $encoded);
     }
 
     /**
