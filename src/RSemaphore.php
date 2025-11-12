@@ -25,8 +25,8 @@ class RSemaphore
         $this->redis = $redis;
         $this->name = $name;
         
-        // 如果指定了初始许可数且当前没有设置，则初始化
-        if ($permits > 0 && !$this->exists()) {
+        // 如果指定了初始许可数，尝试设置
+        if ($permits > 0) {
             $this->trySetPermits($permits);
         }
     }
