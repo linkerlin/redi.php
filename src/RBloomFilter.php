@@ -79,6 +79,11 @@ class RBloomFilter
     {
         $this->loadConfig();
         
+        // 如果没有配置，使用默认配置初始化
+        if ($this->size === 0 || $this->hashIterations === 0) {
+            $this->tryInit($this->expectedInsertions, $this->falseProbability);
+        }
+        
         $hash = $this->hash($element);
         
         for ($i = 0; $i < $this->hashIterations; $i++) {
@@ -98,6 +103,11 @@ class RBloomFilter
     public function contains($element): bool
     {
         $this->loadConfig();
+        
+        // 如果没有配置，使用默认配置初始化
+        if ($this->size === 0 || $this->hashIterations === 0) {
+            $this->tryInit($this->expectedInsertions, $this->falseProbability);
+        }
         
         $hash = $this->hash($element);
         
@@ -120,6 +130,11 @@ class RBloomFilter
     {
         $this->loadConfig();
         
+        // 如果没有配置，使用默认配置初始化
+        if ($this->size === 0 || $this->hashIterations === 0) {
+            $this->tryInit($this->expectedInsertions, $this->falseProbability);
+        }
+        
         $bitCount = $this->redis->bitCount($this->name);
         
         if ($bitCount === 0) {
@@ -140,6 +155,19 @@ class RBloomFilter
     {
         $this->redis->del($this->name . ':config');
         return $this->redis->del($this->name) > 0;
+    }
+
+    /**
+     * Clear the bloom filter
+     *
+     * @return void
+     */
+    public function clear(): void
+    {
+        $this->redis->del($this->name);
+        $this->redis->del($this->name . ':config');
+        $this->size = 0;
+        $this->hashIterations = 0;
     }
 
     /**

@@ -23,7 +23,7 @@ composer require linkerlin/redi.php
 
 ## Requirements
 
-- PHP >= 7.4
+- PHP >= 8.2
 - Redis extension
 - Redis server
 

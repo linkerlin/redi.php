@@ -1,0 +1,19 @@
+parameters:
+    level: 8
+    paths:
+        - src
+        - tests
+    ignoreErrors:
+        - '#Class Redis not found#'
+        - '#Call to method xAdd\(\) on Redis#'
+        - '#Call to method xRange\(\) on Redis#'
+        - '#Call to method xRevRange\(\) on Redis#'
+        - '#Call to method xLen\(\) on Redis#'
+        - '#Call to method xTrim\(\) on Redis#'
+        - '#Call to method xDel\(\) on Redis#'
+        - '#Call to method xGroup\(\) on Redis#'
+        - '#Call to method xReadGroup\(\) on Redis#'
+        - '#Call to method xPending\(\) on Redis#'
+        - '#Call to method xAck\(\) on Redis#'
+        - '#Call to method exists\(\) on Redis#'
+        - '#Call to method del\(\) on Redis#'

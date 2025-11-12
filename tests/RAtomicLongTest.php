@@ -2,31 +2,8 @@
 
 namespace Rediphp\Tests;
 
-use PHPUnit\Framework\TestCase;
-use Rediphp\RedissonClient;
-
-class RAtomicLongTest extends TestCase
+class RAtomicLongTest extends RedissonTestCase
 {
-    private RedissonClient $client;
-    
-    protected function setUp(): void
-    {
-        $this->client = new RedissonClient([
-            'host' => getenv('REDIS_HOST') ?: '127.0.0.1',
-            'port' => (int)(getenv('REDIS_PORT') ?: 6379),
-        ]);
-        
-        if (!@$this->client->connect()) {
-            $this->markTestSkipped('Redis server not available');
-        }
-    }
-    
-    protected function tearDown(): void
-    {
-        if (isset($this->client)) {
-            $this->client->shutdown();
-        }
-    }
     
     public function testSetAndGet(): void
     {

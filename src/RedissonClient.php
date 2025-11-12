@@ -43,25 +43,30 @@ class RedissonClient
      */
     public function connect(): bool
     {
-        $connected = $this->redis->connect(
-            $this->config['host'],
-            $this->config['port'],
-            $this->config['timeout']
-        );
+        try {
+            $connected = $this->redis->connect(
+                $this->config['host'],
+                $this->config['port'],
+                $this->config['timeout']
+            );
 
-        if (!$connected) {
-            return false;
+            if (!$connected) {
+                $error = $this->redis->getLastError();
+                throw new \RuntimeException("Redis connection failed: " . ($error ?: 'Unknown error'));
+            }
+
+            if ($this->config['password'] !== null) {
+                $this->redis->auth($this->config['password']);
+            }
+
+            if ($this->config['database'] > 0) {
+                $this->redis->select($this->config['database']);
+            }
+
+            return true;
+        } catch (\Exception $e) {
+            throw new \RuntimeException("Redis connection error: " . $e->getMessage(), 0, $e);
         }
-
-        if ($this->config['password'] !== null) {
-            $this->redis->auth($this->config['password']);
-        }
-
-        if ($this->config['database'] > 0) {
-            $this->redis->select($this->config['database']);
-        }
-
-        return true;
     }
 
     /**
@@ -259,6 +264,50 @@ class RedissonClient
     public function getPatternTopic(string $pattern): RPatternTopic
     {
         return new RPatternTopic($this->redis, $pattern);
+    }
+
+    /**
+     * Get a distributed HyperLogLog for cardinality estimation
+     *
+     * @param string $name Name of the hyperloglog
+     * @return RHyperLogLog
+     */
+    public function getHyperLogLog(string $name): RHyperLogLog
+    {
+        return new RHyperLogLog($this->redis, $name);
+    }
+
+    /**
+     * Get a distributed Geo for geographic data
+     *
+     * @param string $name Name of the geo set
+     * @return RGeo
+     */
+    public function getGeo(string $name): RGeo
+    {
+        return new RGeo($this->redis, $name);
+    }
+
+    /**
+     * Get a distributed Stream for log-like data
+     *
+     * @param string $name Name of the stream
+     * @return RStream
+     */
+    public function getStream(string $name): RStream
+    {
+        return new RStream($this->redis, $name);
+    }
+
+    /**
+     * Get a distributed TimeSeries for time-series data
+     *
+     * @param string $name Name of the time series
+     * @return RTimeSeries
+     */
+    public function getTimeSeries(string $name): RTimeSeries
+    {
+        return new RTimeSeries($this->redis, $name);
     }
 
     /**

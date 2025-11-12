@@ -14,6 +14,7 @@ redi.php 是一个完全兼容 Redisson 的 PHP 分布式数据结构库。它�
 - ✅ **原子操作** - 支持原子长整型、原子浮点型等原子操作
 - ✅ **发布订阅** - 支持 Topic 和 Pattern Topic
 - ✅ **高级数据结构** - 支持 BitSet、BloomFilter 等高级数据结构
+- ✅ **专业数据结构** - 支持 HyperLogLog、Geo、Stream、TimeSeries 等专业数据结构
 
 ## 安装
 
@@ -23,7 +24,7 @@ composer require linkerlin/redi.php
 
 ## 要求
 
-- PHP >= 7.4
+- PHP >= 8.2
 - Redis 扩展
 - Redis 服务器
 
@@ -247,6 +248,60 @@ $bloomFilter = $client->getBloomFilter('myBloomFilter');
 $bloomFilter->tryInit(1000000, 0.01);   // 初始化（预期插入数、误判率）
 $bloomFilter->add('element');           // 添加元素
 $exists = $bloomFilter->contains('element'); // 检查元素是否可能存在
+```
+
+### 专业数据结构
+
+#### RHyperLogLog - 分布式基数统计
+
+```php
+$hyperLogLog = $client->getHyperLogLog('myHyperLogLog');
+$hyperLogLog->add('user1');             // 添加元素
+$hyperLogLog->add('user2');             // 添加元素
+$hyperLogLog->addAll(['user3', 'user4']); // 批量添加
+$count = $hyperLogLog->count();         // 获取基数估计值
+$hyperLogLog->merge('otherHyperLogLog'); // 合并其他HyperLogLog
+```
+
+#### RGeo - 分布式地理空间数据结构
+
+```php
+$geo = $client->getGeo('myGeo');
+$geo->add('Beijing', 116.4074, 39.9042); // 添加地理坐标
+$geo->add('Shanghai', 121.4737, 31.2304);
+$geo->add('Guangzhou', 113.2644, 23.1291);
+
+$distance = $geo->distance('Beijing', 'Shanghai', 'km'); // 计算距离
+$hash = $geo->hash('Beijing');          // 获取地理哈希
+$position = $geo->position('Beijing'); // 获取坐标
+$nearby = $geo->radius(116.4074, 39.9042, 100, 'km'); // 范围搜索
+```
+
+#### RStream - 分布式流数据结构
+
+```php
+$stream = $client->getStream('myStream');
+$stream->add(['field1' => 'value1']);   // 添加流条目
+$stream->add(['field2' => 'value2'], '*', ['maxlen' => 1000]); // 带最大长度
+$entries = $stream->read();             // 读取所有条目
+$stream->createGroup('myGroup', '0');  // 创建消费者组
+$groupEntries = $stream->readGroup('myGroup', 'consumer1', '0'); // 组消费
+$stream->ack('myGroup', [$entryId]);   // 确认消费
+```
+
+#### RTimeSeries - 分布式时间序列数据结构
+
+```php
+$timeSeries = $client->getTimeSeries('myTimeSeries');
+$timestamp = time() * 1000;            // 毫秒时间戳
+$timeSeries->add($timestamp, 42.5);    // 添加数据点
+$timeSeries->addAll([                   // 批量添加
+    [$timestamp + 1000, 43.0],
+    [$timestamp + 2000, 44.5]
+]);
+$value = $timeSeries->get($timestamp); // 获取数据点
+$range = $timeSeries->range($startTime, $endTime); // 范围查询
+$stats = $timeSeries->getStats();    // 获取统计信息
 ```
 
 ### 发布订阅

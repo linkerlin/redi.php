@@ -13,10 +13,22 @@ class RSemaphore
     private Redis $redis;
     private string $name;
 
-    public function __construct(Redis $redis, string $name)
+    /**
+     * RSemaphore constructor.
+     *
+     * @param Redis $redis Redis connection
+     * @param string $name Semaphore name
+     * @param int $permits Initial number of permits (default: 0)
+     */
+    public function __construct(Redis $redis, string $name, int $permits = 0)
     {
         $this->redis = $redis;
         $this->name = $name;
+        
+        // 如果指定了初始许可数且当前没有设置，则初始化
+        if ($permits > 0 && !$this->exists()) {
+            $this->trySetPermits($permits);
+        }
     }
 
     /**
@@ -27,7 +39,16 @@ class RSemaphore
      */
     public function trySetPermits(int $permits): bool
     {
-        $result = $this->redis->set($this->name, $permits, ['NX']);
+        // 如果信号量已存在，先删除旧值
+        if ($this->exists()) {
+            $this->clear();
+        }
+        
+        // 设置新的许可数
+        $result = $this->redis->set($this->name, $permits);
+        // 同时存储总许可数
+        $totalPermitsKey = $this->name . ':total';
+        $this->redis->set($totalPermitsKey, $permits);
         return $result !== false;
     }
 
@@ -117,5 +138,79 @@ LUA;
     public function delete(): bool
     {
         return $this->redis->del($this->name) > 0;
+    }
+
+    /**
+     * Check if semaphore exists
+     *
+     * @return bool
+     */
+    public function exists(): bool
+    {
+        return $this->redis->exists($this->name) > 0;
+    }
+
+    /**
+     * Get the size (total permits) of the semaphore
+     *
+     * @return int
+     */
+    public function size(): int
+    {
+        // 获取总许可数，使用单独的键来存储总许可数
+        $totalPermitsKey = $this->name . ':total';
+        $value = $this->redis->get($totalPermitsKey);
+        return $value !== false ? (int)$value : 0;
+    }
+
+    /**
+     * Reduce permits
+     *
+     * @param int $permits
+     * @return void
+     */
+    public function reducePermits(int $permits): void
+    {
+        $this->redis->decrBy($this->name, $permits);
+        // 同时更新总许可数
+        $totalPermitsKey = $this->name . ':total';
+        $this->redis->decrBy($totalPermitsKey, $permits);
+    }
+
+    /**
+     * Clear the semaphore (delete the key)
+     *
+     * @return void
+     */
+    public function clear(): void
+    {
+        $this->redis->del($this->name);
+        // 同时清除总许可数
+        $totalPermitsKey = $this->name . ':total';
+        $this->redis->del($totalPermitsKey);
+    }
+
+    /**
+     * Try to acquire with timeout (simplified implementation)
+     *
+     * @param int $permits
+     * @param int $timeout
+     * @return bool
+     */
+    public function tryAcquireWithTimeout(int $permits = 1, int $timeout = 0): bool
+    {
+        if ($timeout > 0) {
+            // 简化的超时实现，实际应该使用更复杂的逻辑
+            $start = microtime(true);
+            while ((microtime(true) - $start) < $timeout) {
+                if ($this->tryAcquire($permits)) {
+                    return true;
+                }
+                usleep(10000); // 10ms
+            }
+            return false;
+        }
+        
+        return $this->tryAcquire($permits);
     }
 }

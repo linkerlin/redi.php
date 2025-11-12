@@ -106,7 +106,10 @@ class RBucket
 
         $script = <<<LUA
 local value = redis.call('get', KEYS[1])
-if value == ARGV[1] then
+if value == false and ARGV[1] == "null" then
+    redis.call('set', KEYS[1], ARGV[2])
+    return 1
+elseif value == ARGV[1] then
     redis.call('set', KEYS[1], ARGV[2])
     return 1
 else
