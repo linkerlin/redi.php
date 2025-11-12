@@ -1,0 +1,73 @@
+{
+    "folders": [
+        {
+            "path": "."
+        }
+    ],
+    "settings": {
+        "php.executablePath": "/opt/homebrew/bin/php",
+        "php.validate.executablePath": "/opt/homebrew/bin/php",
+        "intelephense.environment.phpVersion": "8.4",
+        "intelephense.stubs": [
+            "redis",
+            "standard",
+            "json",
+            "mbstring",
+            "curl",
+            "dom",
+            "iconv",
+            "pdo",
+            "pdo_mysql",
+            "pdo_sqlite",
+            "session",
+            "simplexml",
+            "tokenizer",
+            "xml",
+            "xmlreader",
+            "xmlwriter",
+            "zlib"
+        ],
+        "intelephense.files.include": [
+            "${workspaceFolder}/stubs/**"
+        ],
+        "intelephense.diagnostics.severity": {
+            "undefinedSymbols": "warning",
+            "undefinedTypes": "warning",
+            "undefinedConstants": "warning",
+            "undefinedFunctions": "warning",
+            "undefinedMethods": "warning",
+            "undefinedProperties": "warning",
+            "undefinedVariables": "warning",
+            "unusedSymbols": "hint",
+            "unusedVariables": "hint",
+            "languageConstructs": "warning",
+            "deprecatedSymbols": "warning",
+            "duplicateSymbols": "warning",
+            "references": "hint",
+            "noMemory": "error",
+            "notFullyQualified": "hint"
+        },
+        "intelephense.diagnostics.undefinedTypes": {
+            "Redis": false
+        },
+        "intelephense.completion.autoUseParentheses": true,
+        "intelephense.completion.insertUseDeclaration": true,
+        "intelephense.completion.fullyQualifyGlobalConstantsAndFunctions": false,
+        "intelephense.completion.maxItems": 100,
+        "intelephense.format.enable": true,
+        "intelephense.format.braces": "k&r",
+        "intelephense.trace.server": "off",
+        "intelephense.maxMemory": 1024
+    },
+    "extensions": {
+        "recommendations": [
+            "bmewburn.vscode-intelephense-client",
+            "xdebug.php-debug",
+            "formulahendry.auto-rename-tag",
+            "junstyle.php-cs-fixer",
+            "neilbrayfield.php-docblocker",
+            "phproberto.vscode-php-getters-setters",
+            "recca0120.vscode-phpunit"
+        ]
+    }
+}

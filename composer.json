@@ -30,7 +30,10 @@
     "autoload": {
         "psr-4": {
             "Rediphp\\": "src/"
-        }
+        },
+        "files": [
+            "stubs/Redis.php"
+        ]
     },
     "autoload-dev": {
         "psr-4": {

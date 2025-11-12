@@ -204,9 +204,9 @@ class RTopicTest extends RedissonTestCase
         $topic->clear();
         $this->assertFalse($topic->exists());
         
-        // 发布消息后应该存在
+        // 发布消息后主题仍然不存在（因为没有订阅者）
         $topic->publish('Test');
-        $this->assertTrue($topic->exists());
+        $this->assertFalse($topic->exists());
     }
     
     /**
