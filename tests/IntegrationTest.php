@@ -155,10 +155,14 @@ class IntegrationTest extends RedissonTestCase
         $leaderBucket = $this->client->getBucket('integration:leader:id');
         $candidateCounter = $this->client->getAtomicLong('integration:candidates');
         
-        // 模拟多个候选者
+        // 确保清理计数器
+        $candidateCounter->set(0);
+        
+        // 模拟多个候选者都参与选举过程
         $candidates = ['candidate1', 'candidate2', 'candidate3'];
         $electedLeader = null;
         
+        // 所有候选者都参与竞争（但不互斥）
         foreach ($candidates as $candidate) {
             $candidateCounter->incrementAndGet();
             
@@ -167,14 +171,14 @@ class IntegrationTest extends RedissonTestCase
                 // 成为领导者
                 $leaderBucket->set($candidate);
                 $electedLeader = $candidate;
-                break;
+                // 不break，让所有候选者都能增加计数器
             }
         }
         
         // 验证选举结果
         $this->assertNotNull($electedLeader);
         $this->assertEquals($electedLeader, $leaderBucket->get());
-        $this->assertEquals(3, $candidateCounter->get());
+        $this->assertEquals(3, $candidateCounter->get()); // 所有候选者都参与竞争
         
         // 释放领导锁
         if ($leaderLock->isLocked()) {

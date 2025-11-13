@@ -104,6 +104,7 @@ class RSortedSetTest extends RedissonTestCase
     public function testRemoveOperations()
     {
         $sortedSet = $this->client->getSortedSet('test-remove-sortedset');
+        $sortedSet->clear(); // 确保清理所有数据
         
         // 添加元素
         $sortedSet->add('to-keep', 10.0);
@@ -156,6 +157,7 @@ class RSortedSetTest extends RedissonTestCase
     public function testScoreUpdates()
     {
         $sortedSet = $this->client->getSortedSet('test-score-update-sortedset');
+        $sortedSet->clear(); // 确保清理所有数据
         
         // 添加元素
         $sortedSet->add('member', 10.0);
@@ -228,6 +230,7 @@ class RSortedSetTest extends RedissonTestCase
     public function testClear()
     {
         $sortedSet = $this->client->getSortedSet('test-clear-sortedset');
+        $sortedSet->clear(); // 确保清理所有数据
         
         // 添加元素
         $sortedSet->add('member1', 10.0);
@@ -276,6 +279,7 @@ class RSortedSetTest extends RedissonTestCase
     public function testEdgeCases()
     {
         $sortedSet = $this->client->getSortedSet('test-edge-sortedset');
+        $sortedSet->clear(); // 确保清理所有数据
         
         // 测试空集合
         $this->assertEquals(0, $sortedSet->size());
@@ -410,5 +414,248 @@ class RSortedSetTest extends RedissonTestCase
         
         $this->assertEquals(0, $sortedSet1->size());
         $this->assertEquals(0, $sortedSet2->size());
+    }
+    /**
+     * 测试空值和null值处理
+     */
+    public function testNullAndEmptyValues()
+    {
+        $sortedSet = $this->client->getSortedSet('test-null-sortedset');
+        $sortedSet->clear();
+        
+        // 测试null作为元素
+        $sortedSet->add(null, 10.0);
+        $this->assertTrue($sortedSet->contains(null));
+        $this->assertEquals(10.0, $sortedSet->getScore(null));
+        
+        // 测试空字符串
+        $sortedSet->add('', 20.0);
+        $this->assertTrue($sortedSet->contains(''));
+        $this->assertEquals(20.0, $sortedSet->getScore(''));
+        
+        // 测试包含空格的字符串
+        $sortedSet->add('   ', 30.0);
+        $this->assertTrue($sortedSet->contains('   '));
+        
+        // 验证所有元素都存在
+        $this->assertEquals(3, $sortedSet->size());
+    }
+    
+    /**
+     * 测试极端分数值
+     */
+    public function testExtremeScoreValues()
+    {
+        $sortedSet = $this->client->getSortedSet('test-extreme-scores');
+        $sortedSet->clear();
+        
+        // 测试最大浮点数
+        $sortedSet->add('max', PHP_FLOAT_MAX);
+        $this->assertEquals(PHP_FLOAT_MAX, $sortedSet->getScore('max'));
+        
+        // 测试最小浮点数
+        $sortedSet->add('min', -PHP_FLOAT_MAX);
+        $this->assertEquals(-PHP_FLOAT_MAX, $sortedSet->getScore('min'));
+        
+        // 测试接近0的值
+        $sortedSet->add('near-zero', 1.0e-10);
+        $this->assertEquals(1.0e-10, $sortedSet->getScore('near-zero'));
+        
+        // 测试分数范围查询（使用更安全的范围）
+        $range = $sortedSet->valueRange(-PHP_FLOAT_MAX, PHP_FLOAT_MAX);
+        $this->assertGreaterThanOrEqual(1, count($range)); // 至少应该有1个元素
+    }
+    
+    /**
+     * 测试特殊字符和Unicode
+     */
+    public function testSpecialCharactersAndUnicode()
+    {
+        $sortedSet = $this->client->getSortedSet('test-unicode-sortedset');
+        $sortedSet->clear();
+        
+        // 测试Emoji
+        $sortedSet->add('😀', 10.0);
+        $this->assertTrue($sortedSet->contains('😀'));
+        
+        // 测试中文字符
+        $sortedSet->add('中文测试', 20.0);
+        $this->assertTrue($sortedSet->contains('中文测试'));
+        
+        // 测试日文
+        $sortedSet->add('日本語テスト', 30.0);
+        $this->assertTrue($sortedSet->contains('日本語テスト'));
+        
+        // 测试特殊符号
+        $sortedSet->add('!@#$%^&*()', 40.0);
+        $this->assertTrue($sortedSet->contains('!@#$%^&*()'));
+        
+        // 测试换行符和制表符
+        $sortedSet->add("line1\nline2", 50.0);
+        $this->assertTrue($sortedSet->contains("line1\nline2"));
+        
+        $sortedSet->add("tab\there", 60.0);
+        $this->assertTrue($sortedSet->contains("tab\there"));
+        
+        $this->assertEquals(6, $sortedSet->size());
+    }
+    
+    /**
+     * 测试并发操作
+     */
+    public function testConcurrentOperations()
+    {
+        $sortedSet = $this->client->getSortedSet('test-concurrent-sortedset');
+        $sortedSet->clear();
+        
+        // 模拟并发添加
+        $elements = [];
+        for ($i = 0; $i < 100; $i++) {
+            $elements["element{$i}"] = $i * 1.0;
+        }
+        
+        $sortedSet->addAll($elements);
+        $this->assertEquals(100, $sortedSet->size());
+        
+        // 验证所有元素都存在
+        for ($i = 0; $i < 100; $i++) {
+            $this->assertTrue($sortedSet->contains("element{$i}"));
+            $this->assertEquals($i * 1.0, $sortedSet->getScore("element{$i}"));
+        }
+        
+        // 测试并发删除
+        $deleteElements = [];
+        for ($i = 0; $i < 50; $i++) {
+            $deleteElements[] = "element{$i}";
+        }
+        
+        $removedCount = $sortedSet->removeBatch($deleteElements);
+        $this->assertEquals(50, $removedCount);
+        $this->assertEquals(50, $sortedSet->size());
+    }
+    
+    /**
+     * 测试valueRange边界情况
+     */
+    public function testValueRangeEdgeCases()
+    {
+        $sortedSet = $this->client->getSortedSet('test-value-range-edge');
+        $sortedSet->clear();
+        
+        // 添加测试数据
+        $sortedSet->add('a', 10.0);
+        $sortedSet->add('b', 20.0);
+        $sortedSet->add('c', 30.0);
+        $sortedSet->add('d', 40.0);
+        $sortedSet->add('e', 50.0);
+        
+        // 测试反向范围（开始大于结束）
+        $emptyRange = $sortedSet->valueRange(50.0, 10.0);
+        $this->assertEmpty($emptyRange);
+        
+        // 测试精确分数匹配
+        $exactMatch = $sortedSet->valueRange(20.0, 20.0);
+        $this->assertEquals(['b'], $exactMatch);
+        
+        // 测试不存在的分数范围
+        $nonExistent = $sortedSet->valueRange(100.0, 200.0);
+        $this->assertEmpty($nonExistent);
+        
+        // 测试负数排名
+        $negativeRank = $sortedSet->valueRange(-2, -1);
+        $this->assertEquals(['d', 'e'], $negativeRank);
+        
+        // 测试超出范围的排名
+        $outOfRange = $sortedSet->valueRange(100, 200);
+        $this->assertEmpty($outOfRange);
+    }
+    
+    /**
+     * 测试数据类型转换
+     */
+    public function testDataTypeConversions()
+    {
+        $sortedSet = $this->client->getSortedSet('test-type-conversion');
+        $sortedSet->clear();
+        
+        // 测试整数作为分数
+        $sortedSet->add('int-score', 10);
+        $this->assertEquals(10.0, $sortedSet->getScore('int-score'));
+        
+        // 测试字符串数字作为分数
+        $sortedSet->add('string-score', '25.5');
+        $this->assertEquals(25.5, $sortedSet->getScore('string-score'));
+        
+        // 测试布尔值（应该被转换为数字）
+        $sortedSet->add('bool-true', true);
+        $sortedSet->add('bool-false', false);
+        $this->assertEquals(1.0, $sortedSet->getScore('bool-true'));
+        $this->assertEquals(0.0, $sortedSet->getScore('bool-false'));
+        
+        // 测试数组元素（应该被JSON编码）
+        $arrayElement = ['key' => 'value', 'number' => 123];
+        $sortedSet->add($arrayElement, 30.0);
+        $this->assertTrue($sortedSet->contains($arrayElement));
+        
+        // 测试对象元素（应该被JSON编码）
+        $obj = new \stdClass();
+        $obj->property = 'test';
+        $sortedSet->add($obj, 40.0);
+        $this->assertTrue($sortedSet->contains($obj));
+    }
+    
+    /**
+     * 测试内存效率
+     */
+    public function testMemoryEfficiency()
+    {
+        $sortedSet = $this->client->getSortedSet('test-memory-efficiency');
+        $sortedSet->clear();
+        
+        // 添加大量小元素
+        $startMemory = memory_get_usage();
+        for ($i = 0; $i < 1000; $i++) {
+            $sortedSet->add("element{$i}", $i * 0.1);
+        }
+        
+        $this->assertEquals(1000, $sortedSet->size());
+        
+        // 验证内存使用在合理范围内（每个元素应该很小）
+        $memoryUsed = memory_get_usage() - $startMemory;
+        $this->assertLessThan(10 * 1024 * 1024, $memoryUsed); // 应该小于10MB
+        
+        // 测试批量删除的内存效率
+        $sortedSet->clear();
+        $this->assertEquals(0, $sortedSet->size());
+    }
+    
+    /**
+     * 测试错误处理和恢复
+     */
+    public function testErrorHandlingAndRecovery()
+    {
+        $sortedSet = $this->client->getSortedSet('test-error-recovery');
+        $sortedSet->clear();
+        
+        // 测试删除不存在的元素
+        $this->assertFalse($sortedSet->remove('non-existent'));
+        
+        // 测试获取不存在的元素的分数
+        $this->assertNull($sortedSet->getScore('non-existent'));
+        
+        // 测试获取不存在的元素的排名
+        $this->assertNull($sortedSet->rank('non-existent'));
+        $this->assertNull($sortedSet->revRank('non-existent'));
+        
+        // 测试在空集合上操作
+        $emptySortedSet = $this->client->getSortedSet('test-empty-sortedset');
+        $emptySortedSet->clear();
+        $this->assertEquals(0, $emptySortedSet->size());
+        $this->assertEmpty($emptySortedSet->valueRange(0, -1));
+        $this->assertEmpty($emptySortedSet->readAll());
+        
+        // 测试删除范围操作在空集合上
+        $this->assertEquals(0, $emptySortedSet->removeRangeByScore(0.0, 100.0));
+        $this->assertEquals(0, $emptySortedSet->removeRange(0, -1));
     }
 }
