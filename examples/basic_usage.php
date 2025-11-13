@@ -104,10 +104,10 @@ $sortedSet = $client->getSortedSet('exampleSortedSet');
 $sortedSet->clear();
 
 // 添加带分数的元素
-$sortedSet->add(100, 'Player A');
-$sortedSet->add(200, 'Player B');
-$sortedSet->add(150, 'Player C');
-$sortedSet->add(175, 'Player D');
+$sortedSet->add('Player A', 100.0);
+$sortedSet->add('Player B', 200.0);
+$sortedSet->add('Player C', 150.0);
+$sortedSet->add('Player D', 175.0);
 
 // 获取排名
 echo "Rank of Player C: " . $sortedSet->rank('Player C') . "\n";
@@ -119,7 +119,7 @@ echo "Score of Player B: " . $sortedSet->score('Player B') . "\n";
 echo "Top 3 players: " . json_encode($sortedSet->range(0, 2)) . "\n";
 
 // 获取分数范围
-echo "Players with score 100-180: " . json_encode($sortedSet->rangeByScore(100, 180)) . "\n";
+echo "Players with score 100-180: " . json_encode($sortedSet->rangeByScore(100.0, 180.0)) . "\n";
 
 echo "\n=== RBucket 示例 ===\n";
 $bucket = $client->getBucket('exampleBucket');
