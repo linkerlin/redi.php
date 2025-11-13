@@ -29,6 +29,13 @@ abstract class RedissonTestCase extends TestCase
         
         try {
             $this->client->connect();
+            
+            // 清理integration相关的测试数据
+            $redis = $this->client->getRedis();
+            $keys = $redis->keys('integration:*');
+            if (!empty($keys)) {
+                $redis->del(...$keys);
+            }
         } catch (\Exception $e) {
             // 如果连接失败，尝试其他连接方式
             $this->tryAlternativeConnections($host, $port);

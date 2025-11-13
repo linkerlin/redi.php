@@ -131,6 +131,103 @@ class RSet
     }
 
     /**
+     * Compute the union of this set with another set
+     *
+     * @param RSet $otherSet
+     * @return RSet New set containing the union
+     */
+    public function union(RSet $otherSet): RSet
+    {
+        $unionName = $this->name . ':union:' . uniqid();
+        $unionSet = new RSet($this->redis, $unionName);
+        
+        // Get all elements from both sets
+        $thisElements = $this->toArray();
+        $otherElements = $otherSet->toArray();
+        
+        // Add all unique elements to the union set
+        $allElements = array_unique(array_merge($thisElements, $otherElements));
+        $unionSet->addAll($allElements);
+        
+        return $unionSet;
+    }
+
+    /**
+     * Compute the intersection of this set with another set
+     *
+     * @param RSet $otherSet
+     * @return RSet New set containing the intersection
+     */
+    public function intersection(RSet $otherSet): RSet
+    {
+        $intersectionName = $this->name . ':intersection:' . uniqid();
+        $intersectionSet = new RSet($this->redis, $intersectionName);
+        
+        // Get elements from this set
+        $thisElements = $this->toArray();
+        
+        // Add only elements that exist in both sets
+        foreach ($thisElements as $element) {
+            if ($otherSet->contains($element)) {
+                $intersectionSet->add($element);
+            }
+        }
+        
+        return $intersectionSet;
+    }
+
+    /**
+     * Compute the difference of this set with another set
+     *
+     * @param RSet $otherSet
+     * @return RSet New set containing the difference
+     */
+    public function difference(RSet $otherSet): RSet
+    {
+        $differenceName = $this->name . ':difference:' . uniqid();
+        $differenceSet = new RSet($this->redis, $differenceName);
+        
+        // Get elements from this set
+        $thisElements = $this->toArray();
+        
+        // Add only elements that exist in this set but not in the other
+        foreach ($thisElements as $element) {
+            if (!$otherSet->contains($element)) {
+                $differenceSet->add($element);
+            }
+        }
+        
+        return $differenceSet;
+    }
+
+    /**
+     * Remove all specified elements from the set
+     *
+     * @param array $elements
+     * @return int Number of elements removed
+     */
+    public function removeAll(array $elements): int
+    {
+        $removedCount = 0;
+        foreach ($elements as $element) {
+            if ($this->remove($element)) {
+                $removedCount++;
+            }
+        }
+        return $removedCount;
+    }
+
+    /**
+     * Check if the set exists (has any elements)
+     *
+     * @return bool
+     */
+    public function exists(): bool
+    {
+        return $this->redis->exists($this->name) && $this->size() > 0;
+    }
+
+    /**
      * Encode value for storage (Redisson compatibility)
      *
      * @param mixed $value

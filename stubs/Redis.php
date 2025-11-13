@@ -129,7 +129,6 @@ class Redis
     public function sUnionStore($dst, $key1, ...$other_keys) { return 0; }
     public function zRevRangeByScore($key, $start, $end, $options = []) { return []; }
     public function zCount($key, $min, $max) { return 0; }
-    public function zIncrBy($key, $increment, $member) { return 0; }
     public function hSetNx($key, $field, $value) { return true; }
     public function hIncrByFloat($key, $field, $increment) { return 0.0; }
     public function scan(&$iterator, $pattern = null, $count = 0) { return []; }

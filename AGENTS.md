@@ -3,3 +3,4 @@
 # 每个功能都需要有 单元测试 覆盖
 # 实时更新 TODO.md 
 # 我在 localhost 已经启动了 redis-stack-server ，无需再启动 redis-server
+# 审慎分析问题，尽可能少的改动code，只在必要时才添加新的功能或修改现有功能

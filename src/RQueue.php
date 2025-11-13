@@ -121,6 +121,46 @@ class RQueue
     }
 
     /**
+     * Remove a specific element from the queue
+     *
+     * @param mixed $element
+     * @return bool True if element was found and removed
+     */
+    public function remove($element): bool
+    {
+        $encoded = $this->encodeValue($element);
+        $count = $this->redis->lRem($this->name, $encoded, 1); // Remove first occurrence
+        return $count > 0;
+    }
+
+    /**
+     * Remove all specified elements from the queue
+     *
+     * @param array $elements
+     * @return int Number of elements removed
+     */
+    public function removeAll(array $elements): int
+    {
+        $removedCount = 0;
+        foreach ($elements as $element) {
+            if ($this->remove($element)) {
+                $removedCount++;
+            }
+        }
+        return $removedCount;
+    }
+
+    /**
+     * Check if the queue exists (has any elements)
+     *
+     * @return bool
+     */
+    public function exists(): bool
+    {
+        return $this->redis->exists($this->name) && $this->size() > 0;
+    }
+
+    /**
      * Encode value for storage (Redisson compatibility)
      *
      * @param mixed $value

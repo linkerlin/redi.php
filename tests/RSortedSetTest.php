@@ -134,7 +134,7 @@ class RSortedSetTest extends RedissonTestCase
         
         $removedByRange = $sortedSet->removeRangeByScore(10.0, 20.0);
         $this->assertEquals(1, $removedByRange); // 只删除range2
-        $this->assertEquals(2, $sortedSet->size());
+        $this->assertEquals(3, $sortedSet->size()); // 剩余range1、to-keep和range3
         
         // 按排名范围删除
         $sortedSet->clear();

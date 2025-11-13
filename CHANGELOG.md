@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- RSortedSet::valueRange() method now correctly distinguishes between score ranges and rank ranges
+  - Score ranges (e.g., 10.0, 20.0) now properly call rangeByScore() instead of range()
+  - Rank ranges (e.g., 0, -1) continue to work as expected
+  - Fixed syntax error in conditional logic
+
 ## [1.0.0] - 2025-11-11
 
 ### Added

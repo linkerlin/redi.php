@@ -25,8 +25,8 @@ class RSemaphore
         $this->redis = $redis;
         $this->name = $name;
         
-        // 如果指定了初始许可数，尝试设置
-        if ($permits > 0) {
+        // 如果指定了初始许可数且信号量不存在，则设置初始许可数
+        if ($permits > 0 && !$this->exists()) {
             $this->trySetPermits($permits);
         }
     }
