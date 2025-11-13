@@ -39,11 +39,9 @@ require 'vendor/autoload.php';
 
 use Rediphp\RedissonClient;
 
-// 创建客户端
-$client = new RedissonClient([
-    'host' => '127.0.0.1',
-    'port' => 6379,
-]);
+// 创建客户端 - 支持环境变量配置
+// 默认连接到 127.0.0.1:6379，可通过环境变量自定义
+$client = new RedissonClient();
 
 // 连接到 Redis
 $client->connect();

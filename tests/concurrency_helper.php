@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use Rediphp\RedissonClient;
+use Exception;
 
 // 获取参数
 $paramsStr = $argv[1] ?? '';

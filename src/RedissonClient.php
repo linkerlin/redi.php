@@ -17,23 +17,31 @@ class RedissonClient
      * Create a new RedissonClient instance
      *
      * @param array $config Configuration array with keys:
-     *                      - host: Redis host (default: '127.0.0.1')
-     *                      - port: Redis port (default: 6379)
-     *                      - password: Redis password (optional)
-     *                      - database: Redis database number (default: 0)
-     *                      - timeout: Connection timeout (default: 0.0)
+     *                      - host: Redis host (default: from REDIS_HOST env or '127.0.0.1')
+     *                      - port: Redis port (default: from REDIS_PORT env or 6379)
+     *                      - password: Redis password (default: from REDIS_PASSWORD env or null)
+     *                      - database: Redis database number (default: from REDIS_DATABASE env or 0)
+     *                      - timeout: Connection timeout (default: from REDIS_TIMEOUT env or 0.0)
      */
     public function __construct(array $config = [])
     {
-        $this->config = array_merge([
-            'host' => '127.0.0.1',
-            'port' => 6379,
-            'password' => null,
-            'database' => 0,
-            'timeout' => 0.0,
-        ], $config);
+        $defaultConfig = [
+            'host' => getenv('REDIS_HOST') ?: '127.0.0.1',
+            'port' => (int)(getenv('REDIS_PORT') ?: 6379),
+            'password' => getenv('REDIS_PASSWORD') ?: null,
+            'database' => (int)(getenv('REDIS_DB') ?: getenv('REDIS_DATABASE') ?: 0),
+            'timeout' => (float)(getenv('REDIS_TIMEOUT') ?: 0.0),
+        ];
 
+        // Merge configurations and ensure database is always an integer
+        $this->config = array_merge($defaultConfig, $config);
+        $this->config['database'] = (int)$this->config['database'];
+
+        // Always create a new Redis instance to ensure isolation
         $this->redis = new Redis();
+        
+        // Auto-connect to ensure database selection takes effect
+        $this->connect();
     }
 
     /**
@@ -44,6 +52,12 @@ class RedissonClient
     public function connect(): bool
     {
         try {
+            // Validate database number
+            $database = $this->config['database'];
+            if (!is_int($database) || $database < 0 || $database > 15) {
+                throw new \InvalidArgumentException("Invalid database number: $database. Must be an integer between 0 and 15.");
+            }
+
             $connected = $this->redis->connect(
                 $this->config['host'],
                 $this->config['port'],
@@ -59,9 +73,8 @@ class RedissonClient
                 $this->redis->auth($this->config['password']);
             }
 
-            if ($this->config['database'] > 0) {
-                $this->redis->select($this->config['database']);
-            }
+            // Always select the database, even if it's 0, to ensure isolation
+            $this->redis->select($this->config['database']);
 
             return true;
         } catch (\Exception $e) {
@@ -77,6 +90,16 @@ class RedissonClient
     public function getRedis(): Redis
     {
         return $this->redis;
+    }
+
+    /**
+     * Get the configured database number
+     *
+     * @return int The database number (0-15)
+     */
+    public function getDatabase(): int
+    {
+        return $this->config['database'];
     }
 
     /**

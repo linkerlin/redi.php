@@ -3,6 +3,7 @@
 require 'vendor/autoload.php';
 
 use Rediphp\RedissonClient;
+use Exception;
 
 // 创建客户端
 $client = new RedissonClient([

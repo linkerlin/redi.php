@@ -4,11 +4,11 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use Rediphp\RedissonClient;
 
-// 创建客户端并连接
-$client = new RedissonClient([
-    'host' => '127.0.0.1',
-    'port' => 6379,
-]);
+// 创建Redisson客户端 - 使用环境变量配置
+// 如果没有设置环境变量，将使用默认值 127.0.0.1:6379
+$client = new RedissonClient();
+
+// 连接到Redis服务器
 $client->connect();
 
 echo "=== RMap 示例 ===\n";

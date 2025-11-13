@@ -95,7 +95,7 @@ try {
             lock.unlock();
         }
     }
-} catch (InterruptedException e) {
+} catch (InterruptedException $e) {
     Thread.currentThread().interrupt();
 }
 ```
