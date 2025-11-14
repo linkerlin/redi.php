@@ -2,3 +2,6 @@
 composer.lock
 .phpunit.cache/
 .phpunit.result.cache
+*.zip
+*.tar.gz
+*.tgz
