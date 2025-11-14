@@ -8,15 +8,11 @@ use Redis;
  * Redisson-compatible distributed Queue implementation
  * Uses Redis List structure, compatible with Redisson's RQueue
  */
-class RQueue
+class RQueue extends RedisDataStructure
 {
-    private Redis $redis;
-    private string $name;
-
-    public function __construct(Redis $redis, string $name)
+    public function __construct($connection, string $name)
     {
-        $this->redis = $redis;
-        $this->name = $name;
+        parent::__construct($connection, $name);
     }
 
     /**
@@ -27,8 +23,10 @@ class RQueue
      */
     public function offer($element): bool
     {
-        $encoded = $this->encodeValue($element);
-        return $this->redis->rPush($this->name, $encoded) !== false;
+        return $this->executeWithPool(function($redis) use ($element) {
+            $encoded = $this->encodeValue($element);
+            return $redis->rPush($this->name, $encoded) !== false;
+        });
     }
 
     /**
@@ -49,8 +47,10 @@ class RQueue
      */
     public function poll()
     {
-        $value = $this->redis->lPop($this->name);
-        return $value !== false ? $this->decodeValue($value) : null;
+        return $this->executeWithPool(function($redis) {
+            $value = $redis->lPop($this->name);
+            return $value !== false ? $this->decodeValue($value) : null;
+        });
     }
 
     /**
@@ -60,8 +60,10 @@ class RQueue
      */
     public function peek()
     {
-        $value = $this->redis->lIndex($this->name, 0);
-        return $value !== false ? $this->decodeValue($value) : null;
+        return $this->executeWithPool(function($redis) {
+            $value = $redis->lIndex($this->name, 0);
+            return $value !== false ? $this->decodeValue($value) : null;
+        });
     }
 
     /**
@@ -71,7 +73,9 @@ class RQueue
      */
     public function size(): int
     {
-        return $this->redis->lLen($this->name);
+        return $this->executeWithPool(function($redis) {
+            return $redis->lLen($this->name);
+        });
     }
 
     /**
@@ -81,7 +85,9 @@ class RQueue
      */
     public function isEmpty(): bool
     {
-        return $this->size() === 0;
+        return $this->executeWithPool(function($redis) {
+            return $redis->lLen($this->name) === 0;
+        });
     }
 
     /**
@@ -89,24 +95,24 @@ class RQueue
      */
     public function clear(): void
     {
-        $this->redis->del($this->name);
+        $this->executeWithPool(function($redis) {
+            $redis->del($this->name);
+        });
     }
 
     /**
-     * Check if the queue contains an element
+     * Check if an element exists in the queue
      *
      * @param mixed $element
      * @return bool
      */
     public function contains($element): bool
     {
-        $all = $this->toArray();
-        foreach ($all as $item) {
-            if ($item === $element) {
-                return true;
-            }
-        }
-        return false;
+        return $this->executeWithPool(function($redis) use ($element) {
+            $values = $redis->lRange($this->name, 0, -1);
+            $encoded = $this->encodeValue($element);
+            return in_array($encoded, $values, true);
+        });
     }
 
     /**
@@ -116,8 +122,10 @@ class RQueue
      */
     public function toArray(): array
     {
-        $values = $this->redis->lRange($this->name, 0, -1);
-        return array_map(fn($v) => $this->decodeValue($v), $values);
+        return $this->executeWithPool(function($redis) {
+            $values = $redis->lRange($this->name, 0, -1);
+            return array_map(fn($v) => $this->decodeValue($v), $values);
+        });
     }
 
     /**
@@ -128,9 +136,11 @@ class RQueue
      */
     public function remove($element): bool
     {
-        $encoded = $this->encodeValue($element);
-        $count = $this->redis->lRem($this->name, $encoded, 1); // Remove first occurrence
-        return $count > 0;
+        return $this->executeWithPool(function($redis) use ($element) {
+            $encoded = $this->encodeValue($element);
+            $count = $redis->lRem($this->name, $encoded, 1); // Remove first occurrence
+            return $count > 0;
+        });
     }
 
     /**
@@ -141,13 +151,17 @@ class RQueue
      */
     public function removeAll(array $elements): int
     {
-        $removedCount = 0;
-        foreach ($elements as $element) {
-            if ($this->remove($element)) {
-                $removedCount++;
+        return $this->executeWithPool(function($redis) use ($elements) {
+            $removedCount = 0;
+            foreach ($elements as $element) {
+                $encoded = $this->encodeValue($element);
+                $count = $redis->lRem($this->name, $encoded, 1);
+                if ($count > 0) {
+                    $removedCount++;
+                }
             }
-        }
-        return $removedCount;
+            return $removedCount;
+        });
     }
 
     /**
@@ -157,28 +171,10 @@ class RQueue
      */
     public function exists(): bool
     {
-        return $this->redis->exists($this->name) && $this->size() > 0;
+        return $this->executeWithPool(function($redis) {
+            return $redis->exists($this->name) && $redis->lLen($this->name) > 0;
+        });
     }
 
-    /**
-     * Encode value for storage (Redisson compatibility)
-     *
-     * @param mixed $value
-     * @return string
-     */
-    private function encodeValue($value): string
-    {
-        return json_encode($value);
-    }
 
-    /**
-     * Decode value from storage
-     *
-     * @param string $value
-     * @return mixed
-     */
-    private function decodeValue(string $value)
-    {
-        return json_decode($value, true);
-    }
 }

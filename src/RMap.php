@@ -8,15 +8,11 @@ use Redis;
  * Redisson-compatible distributed Map implementation
  * Uses Redis Hash structure, compatible with Redisson's RMap
  */
-class RMap
+class RMap extends RedisDataStructure
 {
-    private Redis $redis;
-    private string $name;
-
-    public function __construct(Redis $redis, string $name)
+    public function __construct($connection, string $name)
     {
-        $this->redis = $redis;
-        $this->name = $name;
+        parent::__construct($connection, $name);
     }
 
     /**
@@ -28,13 +24,15 @@ class RMap
      */
     public function put($key, $value)
     {
-        $encodedKey = $this->encodeKey($key);
-        $encodedValue = $this->encodeValue($value);
-        
-        $prev = $this->redis->hGet($this->name, $encodedKey);
-        $this->redis->hSet($this->name, $encodedKey, $encodedValue);
-        
-        return $prev !== false ? $this->decodeValue($prev) : null;
+        return $this->executeWithPool(function(Redis $redis) use ($key, $value) {
+            $encodedKey = $this->encodeKey($key);
+            $encodedValue = $this->encodeValue($value);
+            
+            $prev = $redis->hGet($this->name, $encodedKey);
+            $redis->hSet($this->name, $encodedKey, $encodedValue);
+            
+            return $prev !== false ? $this->decodeValue($prev) : null;
+        });
     }
 
     /**
@@ -45,10 +43,12 @@ class RMap
      */
     public function get($key)
     {
-        $encodedKey = $this->encodeKey($key);
-        $value = $this->redis->hGet($this->name, $encodedKey);
-        
-        return $value !== false ? $this->decodeValue($value) : null;
+        return $this->executeWithPool(function(Redis $redis) use ($key) {
+            $encodedKey = $this->encodeKey($key);
+            $value = $redis->hGet($this->name, $encodedKey);
+            
+            return $value !== false ? $this->decodeValue($value) : null;
+        });
     }
 
     /**
@@ -59,11 +59,13 @@ class RMap
      */
     public function remove($key)
     {
-        $encodedKey = $this->encodeKey($key);
-        $prev = $this->redis->hGet($this->name, $encodedKey);
-        $this->redis->hDel($this->name, $encodedKey);
-        
-        return $prev !== false ? $this->decodeValue($prev) : null;
+        return $this->executeWithPool(function(Redis $redis) use ($key) {
+            $encodedKey = $this->encodeKey($key);
+            $prev = $redis->hGet($this->name, $encodedKey);
+            $redis->hDel($this->name, $encodedKey);
+            
+            return $prev !== false ? $this->decodeValue($prev) : null;
+        });
     }
 
     /**
@@ -74,8 +76,10 @@ class RMap
      */
     public function containsKey($key): bool
     {
-        $encodedKey = $this->encodeKey($key);
-        return $this->redis->hExists($this->name, $encodedKey);
+        return $this->executeWithPool(function(Redis $redis) use ($key) {
+            $encodedKey = $this->encodeKey($key);
+            return $redis->hExists($this->name, $encodedKey);
+        });
     }
 
     /**
@@ -85,7 +89,9 @@ class RMap
      */
     public function size(): int
     {
-        return $this->redis->hLen($this->name);
+        return $this->executeWithPool(function(Redis $redis) {
+            return $redis->hLen($this->name);
+        });
     }
 
     /**
@@ -103,7 +109,9 @@ class RMap
      */
     public function clear(): void
     {
-        $this->redis->del($this->name);
+        $this->executeWithPool(function(Redis $redis) {
+            $redis->del($this->name);
+        });
     }
 
     /**
@@ -113,8 +121,10 @@ class RMap
      */
     public function keySet(): array
     {
-        $keys = $this->redis->hKeys($this->name);
-        return array_map(fn($k) => $this->decodeKey($k), $keys);
+        return $this->executeWithPool(function(Redis $redis) {
+            $keys = $redis->hKeys($this->name);
+            return array_map(fn($k) => $this->decodeKey($k), $keys);
+        });
     }
 
     /**
@@ -124,8 +134,10 @@ class RMap
      */
     public function values(): array
     {
-        $values = $this->redis->hVals($this->name);
-        return array_map(fn($v) => $this->decodeValue($v), $values);
+        return $this->executeWithPool(function(Redis $redis) {
+            $values = $redis->hVals($this->name);
+            return array_map(fn($v) => $this->decodeValue($v), $values);
+        });
     }
 
     /**
@@ -135,12 +147,14 @@ class RMap
      */
     public function entrySet(): array
     {
-        $entries = $this->redis->hGetAll($this->name);
-        $result = [];
-        foreach ($entries as $key => $value) {
-            $result[$this->decodeKey($key)] = $this->decodeValue($value);
-        }
-        return $result;
+        return $this->executeWithPool(function(Redis $redis) {
+            $entries = $redis->hGetAll($this->name);
+            $result = [];
+            foreach ($entries as $key => $value) {
+                $result[$this->decodeKey($key)] = $this->decodeValue($value);
+            }
+            return $result;
+        });
     }
 
     /**
@@ -150,13 +164,15 @@ class RMap
      */
     public function putAll(array $map): void
     {
-        $encoded = [];
-        foreach ($map as $key => $value) {
-            $encoded[$this->encodeKey($key)] = $this->encodeValue($value);
-        }
-        if (!empty($encoded)) {
-            $this->redis->hMSet($this->name, $encoded);
-        }
+        $this->executeWithPool(function(Redis $redis) use ($map) {
+            $encoded = [];
+            foreach ($map as $key => $value) {
+                $encoded[$this->encodeKey($key)] = $this->encodeValue($value);
+            }
+            if (!empty($encoded)) {
+                $redis->hMSet($this->name, $encoded);
+            }
+        });
     }
 
     /**
@@ -168,16 +184,19 @@ class RMap
      */
     public function putIfAbsent($key, $value)
     {
-        $encodedKey = $this->encodeKey($key);
-        $encodedValue = $this->encodeValue($value);
-        
-        $result = $this->redis->hSetNx($this->name, $encodedKey, $encodedValue);
-        
-        if ($result === 0) {
-            return $this->get($key);
-        }
-        
-        return null;
+        return $this->executeWithPool(function(Redis $redis) use ($key, $value) {
+            $encodedKey = $this->encodeKey($key);
+            $encodedValue = $this->encodeValue($value);
+            
+            $result = $redis->hSetNx($this->name, $encodedKey, $encodedValue);
+            
+            if ($result === 0) {
+                $existingValue = $redis->hGet($this->name, $encodedKey);
+                return $existingValue !== false ? $this->decodeValue($existingValue) : null;
+            }
+            
+            return null;
+        });
     }
 
     /**
@@ -193,53 +212,5 @@ class RMap
             return null;
         }
         return $this->put($key, $value);
-    }
-
-    /**
-     * Encode key for storage (Redisson compatibility)
-     *
-     * @param mixed $key
-     * @return string
-     */
-    private function encodeKey($key): string
-    {
-        if (is_string($key)) {
-            return $key;
-        }
-        return json_encode($key);
-    }
-
-    /**
-     * Decode key from storage
-     *
-     * @param string $key
-     * @return mixed
-     */
-    private function decodeKey(string $key)
-    {
-        $decoded = json_decode($key, true);
-        return $decoded !== null ? $decoded : $key;
-    }
-
-    /**
-     * Encode value for storage (Redisson compatibility)
-     *
-     * @param mixed $value
-     * @return string
-     */
-    private function encodeValue($value): string
-    {
-        return json_encode($value);
-    }
-
-    /**
-     * Decode value from storage
-     *
-     * @param string $value
-     * @return mixed
-     */
-    private function decodeValue(string $value)
-    {
-        return json_decode($value, true);
     }
 }

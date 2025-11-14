@@ -8,15 +8,11 @@ use Redis;
  * Redisson-compatible distributed Deque (Double-ended Queue) implementation
  * Uses Redis List structure, compatible with Redisson's RDeque
  */
-class RDeque
+class RDeque extends RedisDataStructure
 {
-    private Redis $redis;
-    private string $name;
-
-    public function __construct(Redis $redis, string $name)
+    public function __construct($connection, string $name)
     {
-        $this->redis = $redis;
-        $this->name = $name;
+        parent::__construct($connection, $name);
     }
 
     /**
@@ -27,8 +23,10 @@ class RDeque
      */
     public function addFirst($element): bool
     {
-        $encoded = $this->encodeValue($element);
-        return $this->redis->lPush($this->name, $encoded) !== false;
+        return $this->executeWithPool(function($redis) use ($element) {
+            $encoded = $this->encodeValue($element);
+            return $redis->lPush($this->name, $encoded) !== false;
+        });
     }
 
     /**
@@ -39,8 +37,10 @@ class RDeque
      */
     public function addLast($element): bool
     {
-        $encoded = $this->encodeValue($element);
-        return $this->redis->rPush($this->name, $encoded) !== false;
+        return $this->executeWithPool(function($redis) use ($element) {
+            $encoded = $this->encodeValue($element);
+            return $redis->rPush($this->name, $encoded) !== false;
+        });
     }
 
     /**
@@ -50,8 +50,10 @@ class RDeque
      */
     public function removeFirst()
     {
-        $value = $this->redis->lPop($this->name);
-        return $value !== false ? $this->decodeValue($value) : null;
+        return $this->executeWithPool(function($redis) {
+            $value = $redis->lPop($this->name);
+            return $value !== false ? $this->decodeValue($value) : null;
+        });
     }
 
     /**
@@ -61,8 +63,10 @@ class RDeque
      */
     public function removeLast()
     {
-        $value = $this->redis->rPop($this->name);
-        return $value !== false ? $this->decodeValue($value) : null;
+        return $this->executeWithPool(function($redis) {
+            $value = $redis->rPop($this->name);
+            return $value !== false ? $this->decodeValue($value) : null;
+        });
     }
 
     /**
@@ -72,8 +76,10 @@ class RDeque
      */
     public function peekFirst()
     {
-        $value = $this->redis->lIndex($this->name, 0);
-        return $value !== false ? $this->decodeValue($value) : null;
+        return $this->executeWithPool(function($redis) {
+            $value = $redis->lIndex($this->name, 0);
+            return $value !== false ? $this->decodeValue($value) : null;
+        });
     }
 
     /**
@@ -83,8 +89,10 @@ class RDeque
      */
     public function peekLast()
     {
-        $value = $this->redis->lIndex($this->name, -1);
-        return $value !== false ? $this->decodeValue($value) : null;
+        return $this->executeWithPool(function($redis) {
+            $value = $redis->lIndex($this->name, -1);
+            return $value !== false ? $this->decodeValue($value) : null;
+        });
     }
 
     /**
@@ -94,7 +102,9 @@ class RDeque
      */
     public function size(): int
     {
-        return $this->redis->lLen($this->name);
+        return $this->executeWithPool(function($redis) {
+            return $redis->lLen($this->name);
+        });
     }
 
     /**
@@ -104,7 +114,9 @@ class RDeque
      */
     public function isEmpty(): bool
     {
-        return $this->size() === 0;
+        return $this->executeWithPool(function($redis) {
+            return $redis->lLen($this->name) === 0;
+        });
     }
 
     /**
@@ -112,7 +124,9 @@ class RDeque
      */
     public function clear(): void
     {
-        $this->redis->del($this->name);
+        $this->executeWithPool(function($redis) {
+            $redis->del($this->name);
+        });
     }
 
     /**
@@ -123,13 +137,11 @@ class RDeque
      */
     public function contains($element): bool
     {
-        $all = $this->toArray();
-        foreach ($all as $item) {
-            if ($item === $element) {
-                return true;
-            }
-        }
-        return false;
+        return $this->executeWithPool(function($redis) use ($element) {
+            $values = $redis->lRange($this->name, 0, -1);
+            $encoded = $this->encodeValue($element);
+            return in_array($encoded, $values, true);
+        });
     }
 
     /**
@@ -139,29 +151,11 @@ class RDeque
      */
     public function toArray(): array
     {
-        $values = $this->redis->lRange($this->name, 0, -1);
-        return array_map(fn($v) => $this->decodeValue($v), $values);
+        return $this->executeWithPool(function($redis) {
+            $values = $redis->lRange($this->name, 0, -1);
+            return array_map(fn($v) => $this->decodeValue($v), $values);
+        });
     }
 
-    /**
-     * Encode value for storage (Redisson compatibility)
-     *
-     * @param mixed $value
-     * @return string
-     */
-    private function encodeValue($value): string
-    {
-        return json_encode($value);
-    }
 
-    /**
-     * Decode value from storage
-     *
-     * @param string $value
-     * @return mixed
-     */
-    private function decodeValue(string $value)
-    {
-        return json_decode($value, true);
-    }
 }

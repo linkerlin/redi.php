@@ -8,15 +8,11 @@ use Redis;
  * Redisson-compatible distributed Set implementation
  * Uses Redis Set structure, compatible with Redisson's RSet
  */
-class RSet
+class RSet extends RedisDataStructure
 {
-    private Redis $redis;
-    private string $name;
-
-    public function __construct(Redis $redis, string $name)
+    public function __construct($connection, string $name)
     {
-        $this->redis = $redis;
-        $this->name = $name;
+        parent::__construct($connection, $name);
     }
 
     /**
@@ -27,8 +23,10 @@ class RSet
      */
     public function add($element): bool
     {
-        $encoded = $this->encodeValue($element);
-        return $this->redis->sAdd($this->name, $encoded) > 0;
+        return $this->executeWithPool(function($redis) use ($element) {
+            $encoded = $this->encodeValue($element);
+            return $redis->sAdd($this->name, $encoded) > 0;
+        });
     }
 
     /**
@@ -39,10 +37,13 @@ class RSet
      */
     public function addAll(array $elements): bool
     {
-        foreach ($elements as $element) {
-            $this->add($element);
-        }
-        return true;
+        return $this->executeWithPool(function($redis) use ($elements) {
+            foreach ($elements as $element) {
+                $encoded = $this->encodeValue($element);
+                $redis->sAdd($this->name, $encoded);
+            }
+            return true;
+        });
     }
 
     /**
@@ -53,8 +54,10 @@ class RSet
      */
     public function remove($element): bool
     {
-        $encoded = $this->encodeValue($element);
-        return $this->redis->sRem($this->name, $encoded) > 0;
+        return $this->executeWithPool(function($redis) use ($element) {
+            $encoded = $this->encodeValue($element);
+            return $redis->sRem($this->name, $encoded) > 0;
+        });
     }
 
     /**
@@ -65,8 +68,10 @@ class RSet
      */
     public function contains($element): bool
     {
-        $encoded = $this->encodeValue($element);
-        return $this->redis->sIsMember($this->name, $encoded);
+        return $this->executeWithPool(function($redis) use ($element) {
+            $encoded = $this->encodeValue($element);
+            return $redis->sIsMember($this->name, $encoded);
+        });
     }
 
     /**
@@ -76,7 +81,9 @@ class RSet
      */
     public function size(): int
     {
-        return $this->redis->sCard($this->name);
+        return $this->executeWithPool(function($redis) {
+            return $redis->sCard($this->name);
+        });
     }
 
     /**
@@ -94,7 +101,9 @@ class RSet
      */
     public function clear(): void
     {
-        $this->redis->del($this->name);
+        $this->executeWithPool(function($redis) {
+            $redis->del($this->name);
+        });
     }
 
     /**
@@ -104,8 +113,10 @@ class RSet
      */
     public function toArray(): array
     {
-        $values = $this->redis->sMembers($this->name);
-        return array_map(fn($v) => $this->decodeValue($v), $values);
+        return $this->executeWithPool(function($redis) {
+            $values = $redis->sMembers($this->name);
+            return array_map(fn($v) => $this->decodeValue($v), $values);
+        });
     }
 
     /**
@@ -115,8 +126,10 @@ class RSet
      */
     public function random()
     {
-        $value = $this->redis->sRandMember($this->name);
-        return $value !== false ? $this->decodeValue($value) : null;
+        return $this->executeWithPool(function($redis) {
+            $value = $redis->sRandMember($this->name);
+            return $value !== false ? $this->decodeValue($value) : null;
+        });
     }
 
     /**
@@ -126,8 +139,10 @@ class RSet
      */
     public function removeRandom()
     {
-        $value = $this->redis->sPop($this->name);
-        return $value !== false ? $this->decodeValue($value) : null;
+        return $this->executeWithPool(function($redis) {
+            $value = $redis->sPop($this->name);
+            return $value !== false ? $this->decodeValue($value) : null;
+        });
     }
 
     /**
@@ -138,18 +153,20 @@ class RSet
      */
     public function union(RSet $otherSet): RSet
     {
-        $unionName = $this->name . ':union:' . uniqid();
-        $unionSet = new RSet($this->redis, $unionName);
-        
-        // Get all elements from both sets
-        $thisElements = $this->toArray();
-        $otherElements = $otherSet->toArray();
-        
-        // Add all unique elements to the union set
-        $allElements = array_unique(array_merge($thisElements, $otherElements));
-        $unionSet->addAll($allElements);
-        
-        return $unionSet;
+        return $this->executeWithPool(function($redis) use ($otherSet) {
+            $unionName = $this->name . ':union:' . uniqid();
+            $unionSet = new RSet($this->connection ?: $redis, $unionName);
+            
+            // Get all elements from both sets
+            $thisElements = $this->toArray();
+            $otherElements = $otherSet->toArray();
+            
+            // Add all unique elements to the union set
+            $allElements = array_unique(array_merge($thisElements, $otherElements));
+            $unionSet->addAll($allElements);
+            
+            return $unionSet;
+        });
     }
 
     /**
@@ -160,20 +177,22 @@ class RSet
      */
     public function intersection(RSet $otherSet): RSet
     {
-        $intersectionName = $this->name . ':intersection:' . uniqid();
-        $intersectionSet = new RSet($this->redis, $intersectionName);
-        
-        // Get elements from this set
-        $thisElements = $this->toArray();
-        
-        // Add only elements that exist in both sets
-        foreach ($thisElements as $element) {
-            if ($otherSet->contains($element)) {
-                $intersectionSet->add($element);
+        return $this->executeWithPool(function($redis) use ($otherSet) {
+            $intersectionName = $this->name . ':intersection:' . uniqid();
+            $intersectionSet = new RSet($this->connection ?: $redis, $intersectionName);
+            
+            // Get elements from this set
+            $thisElements = $this->toArray();
+            
+            // Add only elements that exist in both sets
+            foreach ($thisElements as $element) {
+                if ($otherSet->contains($element)) {
+                    $intersectionSet->add($element);
+                }
             }
-        }
-        
-        return $intersectionSet;
+            
+            return $intersectionSet;
+        });
     }
 
     /**
@@ -184,20 +203,22 @@ class RSet
      */
     public function difference(RSet $otherSet): RSet
     {
-        $differenceName = $this->name . ':difference:' . uniqid();
-        $differenceSet = new RSet($this->redis, $differenceName);
-        
-        // Get elements from this set
-        $thisElements = $this->toArray();
-        
-        // Add only elements that exist in this set but not in the other
-        foreach ($thisElements as $element) {
-            if (!$otherSet->contains($element)) {
-                $differenceSet->add($element);
+        return $this->executeWithPool(function($redis) use ($otherSet) {
+            $differenceName = $this->name . ':difference:' . uniqid();
+            $differenceSet = new RSet($this->connection ?: $redis, $differenceName);
+            
+            // Get elements from this set
+            $thisElements = $this->toArray();
+            
+            // Add only elements that exist in this set but not in the other
+            foreach ($thisElements as $element) {
+                if (!$otherSet->contains($element)) {
+                    $differenceSet->add($element);
+                }
             }
-        }
-        
-        return $differenceSet;
+            
+            return $differenceSet;
+        });
     }
 
     /**
@@ -208,13 +229,16 @@ class RSet
      */
     public function removeAll(array $elements): int
     {
-        $removedCount = 0;
-        foreach ($elements as $element) {
-            if ($this->remove($element)) {
-                $removedCount++;
+        return $this->executeWithPool(function($redis) use ($elements) {
+            $removedCount = 0;
+            foreach ($elements as $element) {
+                $encoded = $this->encodeValue($element);
+                if ($redis->sRem($this->name, $encoded) > 0) {
+                    $removedCount++;
+                }
             }
-        }
-        return $removedCount;
+            return $removedCount;
+        });
     }
 
     /**
@@ -224,28 +248,8 @@ class RSet
      */
     public function exists(): bool
     {
-        return $this->redis->exists($this->name) && $this->size() > 0;
-    }
-
-    /**
-     * Encode value for storage (Redisson compatibility)
-     *
-     * @param mixed $value
-     * @return string
-     */
-    private function encodeValue($value): string
-    {
-        return json_encode($value);
-    }
-
-    /**
-     * Decode value from storage
-     *
-     * @param string $value
-     * @return mixed
-     */
-    private function decodeValue(string $value)
-    {
-        return json_decode($value, true);
+        return $this->executeWithPool(function($redis) {
+            return $redis->exists($this->name) && $this->size() > 0;
+        });
     }
 }

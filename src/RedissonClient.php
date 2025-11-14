@@ -3,15 +3,42 @@
 namespace Rediphp;
 
 use Redis;
+use Rediphp\RedisPool;
+use Rediphp\PooledRedis;
+use Rediphp\RMap;
+use Rediphp\RList;
+use Rediphp\RSet;
+use Rediphp\RSortedSet;
+use Rediphp\RQueue;
+use Rediphp\RDeque;
+use Rediphp\RLock;
+use Rediphp\RReadWriteLock;
+use Rediphp\RSemaphore;
+use Rediphp\RCountDownLatch;
+use Rediphp\RAtomicLong;
+use Rediphp\RAtomicDouble;
+use Rediphp\RBucket;
+use Rediphp\RBitSet;
+use Rediphp\RBloomFilter;
+use Rediphp\RTopic;
+use Rediphp\RPatternTopic;
+use Rediphp\RHyperLogLog;
+use Rediphp\RGeo;
+use Rediphp\RStream;
+use Rediphp\RTimeSeries;
 
 /**
  * Redisson-compatible Redis client for PHP
  * Main entry point for accessing distributed data structures
+ * Supports both direct connections and connection pooling
  */
 class RedissonClient
 {
     private Redis $redis;
     private array $config;
+    private ?RedisPool $pool = null;
+    private bool $usePool = false;
+    private ?PooledRedis $currentPooledConnection = null;
 
     /**
      * Create a new RedissonClient instance
@@ -22,6 +49,8 @@ class RedissonClient
      *                      - password: Redis password (default: from REDIS_PASSWORD env or null)
      *                      - database: Redis database number (default: from REDIS_DATABASE env or 0)
      *                      - timeout: Connection timeout (default: from REDIS_TIMEOUT env or 0.0)
+     *                      - use_pool: Whether to use connection pool (default: false)
+     *                      - pool_config: Connection pool configuration (optional)
      */
     public function __construct(array $config = [])
     {
@@ -31,17 +60,31 @@ class RedissonClient
             'password' => getenv('REDIS_PASSWORD') ?: null,
             'database' => (int)(getenv('REDIS_DB') ?: getenv('REDIS_DATABASE') ?: 0),
             'timeout' => (float)(getenv('REDIS_TIMEOUT') ?: 0.0),
+            'use_pool' => false,
+            'pool_config' => [],
         ];
 
         // Merge configurations and ensure database is always an integer
         $this->config = array_merge($defaultConfig, $config);
         $this->config['database'] = (int)$this->config['database'];
+        $this->usePool = (bool)$this->config['use_pool'];
 
-        // Always create a new Redis instance to ensure isolation
-        $this->redis = new Redis();
-        
-        // Auto-connect to ensure database selection takes effect
-        $this->connect();
+        if ($this->usePool) {
+            // 使用连接池
+            $poolConfig = array_merge($this->config, $this->config['pool_config']);
+            $this->pool = new RedisPool($poolConfig);
+            
+            // 获取连接并预热连接池
+            $connection = $this->pool->getConnection();
+            $this->redis = $connection->getRedis();
+            
+            // 连接在使用后需要归还到连接池
+            $connection->returnToPool();
+        } else {
+            // 使用直接连接（向后兼容）
+            $this->redis = new Redis();
+            $this->connect();
+        }
     }
 
     /**
@@ -83,14 +126,38 @@ class RedissonClient
     }
 
     /**
-     * Get the underlying Redis instance
+     * Get a Redis connection for use in data structures
+     * This method handles both direct connections and connection pooling
      *
      * @return Redis
      */
     public function getRedis(): Redis
     {
+        if ($this->usePool && $this->pool) {
+            // 从连接池获取连接
+            $this->currentPooledConnection = $this->pool->getConnection();
+            return $this->currentPooledConnection->getRedis();
+        }
+        
         return $this->redis;
     }
+
+    /**
+     * Return a Redis connection to the pool after use
+     * This is required when using connection pooling
+     *
+     * @param Redis $redis The Redis connection to return
+     */
+    public function returnRedis(Redis $redis): void
+    {
+        if ($this->usePool && $this->pool && $this->currentPooledConnection) {
+            // 归还连接池对象
+            $this->pool->returnConnection($this->currentPooledConnection);
+            $this->currentPooledConnection = null;
+        }
+    }
+
+
 
     /**
      * Get the configured database number
@@ -110,7 +177,7 @@ class RedissonClient
      */
     public function getMap(string $name): RMap
     {
-        return new RMap($this->redis, $name);
+        return new RMap($this, $name);
     }
 
     /**
@@ -121,7 +188,7 @@ class RedissonClient
      */
     public function getList(string $name): RList
     {
-        return new RList($this->redis, $name);
+        return new RList($this, $name);
     }
 
     /**
@@ -132,7 +199,7 @@ class RedissonClient
      */
     public function getSet(string $name): RSet
     {
-        return new RSet($this->redis, $name);
+        return new RSet($this, $name);
     }
 
     /**
@@ -143,7 +210,7 @@ class RedissonClient
      */
     public function getSortedSet(string $name): RSortedSet
     {
-        return new RSortedSet($this->redis, $name);
+        return new RSortedSet($this, $name);
     }
 
     /**
@@ -154,7 +221,7 @@ class RedissonClient
      */
     public function getQueue(string $name): RQueue
     {
-        return new RQueue($this->redis, $name);
+        return new RQueue($this, $name);
     }
 
     /**
@@ -165,7 +232,7 @@ class RedissonClient
      */
     public function getDeque(string $name): RDeque
     {
-        return new RDeque($this->redis, $name);
+        return new RDeque($this, $name);
     }
 
     /**
@@ -176,7 +243,7 @@ class RedissonClient
      */
     public function getLock(string $name): RLock
     {
-        return new RLock($this->redis, $name);
+        return new RLock($this, $name);
     }
 
     /**
@@ -187,7 +254,7 @@ class RedissonClient
      */
     public function getReadWriteLock(string $name): RReadWriteLock
     {
-        return new RReadWriteLock($this->redis, $name);
+        return new RReadWriteLock($this, $name);
     }
 
     /**
@@ -198,7 +265,7 @@ class RedissonClient
      */
     public function getSemaphore(string $name): RSemaphore
     {
-        return new RSemaphore($this->redis, $name);
+        return new RSemaphore($this, $name);
     }
 
     /**
@@ -209,7 +276,7 @@ class RedissonClient
      */
     public function getCountDownLatch(string $name): RCountDownLatch
     {
-        return new RCountDownLatch($this->redis, $name);
+        return new RCountDownLatch($this, $name);
     }
 
     /**
@@ -220,7 +287,7 @@ class RedissonClient
      */
     public function getAtomicLong(string $name): RAtomicLong
     {
-        return new RAtomicLong($this->redis, $name);
+        return new RAtomicLong($this, $name);
     }
 
     /**
@@ -231,7 +298,7 @@ class RedissonClient
      */
     public function getAtomicDouble(string $name): RAtomicDouble
     {
-        return new RAtomicDouble($this->redis, $name);
+        return new RAtomicDouble($this, $name);
     }
 
     /**
@@ -242,7 +309,7 @@ class RedissonClient
      */
     public function getBucket(string $name): RBucket
     {
-        return new RBucket($this->redis, $name);
+        return new RBucket($this, $name);
     }
 
     /**
@@ -253,7 +320,7 @@ class RedissonClient
      */
     public function getBitSet(string $name): RBitSet
     {
-        return new RBitSet($this->redis, $name);
+        return new RBitSet($this, $name);
     }
 
     /**
@@ -264,7 +331,7 @@ class RedissonClient
      */
     public function getBloomFilter(string $name): RBloomFilter
     {
-        return new RBloomFilter($this->redis, $name);
+        return new RBloomFilter($this, $name);
     }
 
     /**
@@ -275,7 +342,7 @@ class RedissonClient
      */
     public function getTopic(string $name): RTopic
     {
-        return new RTopic($this->redis, $name);
+        return new RTopic($this, $name);
     }
 
     /**
@@ -286,7 +353,7 @@ class RedissonClient
      */
     public function getPatternTopic(string $pattern): RPatternTopic
     {
-        return new RPatternTopic($this->redis, $pattern);
+        return new RPatternTopic($this, $pattern);
     }
 
     /**
@@ -297,7 +364,7 @@ class RedissonClient
      */
     public function getHyperLogLog(string $name): RHyperLogLog
     {
-        return new RHyperLogLog($this->redis, $name);
+        return new RHyperLogLog($this, $name);
     }
 
     /**
@@ -308,7 +375,7 @@ class RedissonClient
      */
     public function getGeo(string $name): RGeo
     {
-        return new RGeo($this->redis, $name);
+        return new RGeo($this, $name);
     }
 
     /**
@@ -319,7 +386,7 @@ class RedissonClient
      */
     public function getStream(string $name): RStream
     {
-        return new RStream($this->redis, $name);
+        return new RStream($this, $name);
     }
 
     /**
@@ -330,7 +397,31 @@ class RedissonClient
      */
     public function getTimeSeries(string $name): RTimeSeries
     {
-        return new RTimeSeries($this->redis, $name);
+        return new RTimeSeries($this, $name);
+    }
+
+    /**
+     * 获取连接池统计信息
+     *
+     * @return array|null 如果未使用连接池则返回null
+     */
+    public function getConnectionPoolStats(): ?array
+    {
+        if ($this->usePool && $this->pool !== null) {
+            return $this->pool->getStats();
+        }
+        
+        return null;
+    }
+
+    /**
+     * 检查是否使用连接池
+     *
+     * @return bool
+     */
+    public function isUsingPool(): bool
+    {
+        return $this->usePool;
     }
 
     /**

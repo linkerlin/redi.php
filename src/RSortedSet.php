@@ -8,15 +8,11 @@ use Redis;
  * Redisson-compatible distributed SortedSet implementation
  * Uses Redis Sorted Set structure, compatible with Redisson's RSortedSet
  */
-class RSortedSet
+class RSortedSet extends RedisDataStructure
 {
-    private Redis $redis;
-    private string $name;
-
-    public function __construct(Redis $redis, string $name)
+    public function __construct($connection, string $name)
     {
-        $this->redis = $redis;
-        $this->name = $name;
+        parent::__construct($connection, $name);
     }
 
     /**
@@ -28,11 +24,13 @@ class RSortedSet
      */
     public function add($element, float $score): bool
     {
-        $encoded = $this->encodeValue($element);
-        $result = $this->redis->zAdd($this->name, $score, $encoded);
-        // zAdd returns 0 if element already existed and score was updated
-        // We want to return true in both cases (new element added or existing updated)
-        return $result >= 0;
+        return $this->executeWithPool(function($redis) use ($element, $score) {
+            $encoded = $this->encodeValue($element);
+            $result = $redis->zAdd($this->name, $score, $encoded);
+            // zAdd returns 0 if element already existed and score was updated
+            // We want to return true in both cases (new element added or existing updated)
+            return $result >= 0;
+        });
     }
 
     /**
@@ -43,8 +41,10 @@ class RSortedSet
      */
     public function remove($element): bool
     {
-        $encoded = $this->encodeValue($element);
-        return $this->redis->zRem($this->name, $encoded) > 0;
+        return $this->executeWithPool(function($redis) use ($element) {
+            $encoded = $this->encodeValue($element);
+            return $redis->zRem($this->name, $encoded) > 0;
+        });
     }
 
     /**
@@ -55,9 +55,11 @@ class RSortedSet
      */
     public function score($element): ?float
     {
-        $encoded = $this->encodeValue($element);
-        $score = $this->redis->zScore($this->name, $encoded);
-        return $score !== false ? $score : null;
+        return $this->executeWithPool(function($redis) use ($element) {
+            $encoded = $this->encodeValue($element);
+            $score = $redis->zScore($this->name, $encoded);
+            return $score !== false ? $score : null;
+        });
     }
 
     /**
@@ -79,9 +81,11 @@ class RSortedSet
      */
     public function rank($element): ?int
     {
-        $encoded = $this->encodeValue($element);
-        $rank = $this->redis->zRank($this->name, $encoded);
-        return $rank !== false ? $rank : null;
+        return $this->executeWithPool(function($redis) use ($element) {
+            $encoded = $this->encodeValue($element);
+            $rank = $redis->zRank($this->name, $encoded);
+            return $rank !== false ? $rank : null;
+        });
     }
 
     /**
@@ -92,9 +96,11 @@ class RSortedSet
      */
     public function revRank($element): ?int
     {
-        $encoded = $this->encodeValue($element);
-        $rank = $this->redis->zRevRank($this->name, $encoded);
-        return $rank !== false ? $rank : null;
+        return $this->executeWithPool(function($redis) use ($element) {
+            $encoded = $this->encodeValue($element);
+            $rank = $redis->zRevRank($this->name, $encoded);
+            return $rank !== false ? $rank : null;
+        });
     }
 
     /**
@@ -107,17 +113,19 @@ class RSortedSet
      */
     public function range(int $start, int $end, bool $withScores = false): array
     {
-        $values = $this->redis->zRange($this->name, $start, $end, $withScores);
-        
-        if ($withScores) {
-            $result = [];
-            foreach ($values as $value => $score) {
-                $result[$this->decodeValue($value)] = $score;
+        return $this->executeWithPool(function($redis) use ($start, $end, $withScores) {
+            $values = $redis->zRange($this->name, $start, $end, $withScores);
+            
+            if ($withScores) {
+                $result = [];
+                foreach ($values as $value => $score) {
+                    $result[$this->decodeValue($value)] = $score;
+                }
+                return $result;
             }
-            return $result;
-        }
-        
-        return array_values(array_map(fn($v) => $this->decodeValue($v), $values));
+            
+            return array_values(array_map(fn($v) => $this->decodeValue($v), $values));
+        });
     }
 
     /**
@@ -130,17 +138,19 @@ class RSortedSet
      */
     public function rangeByScore(float $min, float $max, bool $withScores = false): array
     {
-        $values = $this->redis->zRangeByScore($this->name, $min, $max, ['withscores' => $withScores]);
-        
-        if ($withScores) {
-            $result = [];
-            foreach ($values as $value => $score) {
-                $result[$this->decodeValue($value)] = $score;
+        return $this->executeWithPool(function($redis) use ($min, $max, $withScores) {
+            $values = $redis->zRangeByScore($this->name, $min, $max, ['withscores' => $withScores]);
+            
+            if ($withScores) {
+                $result = [];
+                foreach ($values as $value => $score) {
+                    $result[$this->decodeValue($value)] = $score;
+                }
+                return $result;
             }
-            return $result;
-        }
-        
-        return array_values(array_map(fn($v) => $this->decodeValue($v), $values));
+            
+            return array_values(array_map(fn($v) => $this->decodeValue($v), $values));
+        });
     }
 
     /**
@@ -153,17 +163,19 @@ class RSortedSet
      */
     public function revRange(int $start, int $end, bool $withScores = false): array
     {
-        $values = $this->redis->zRevRange($this->name, $start, $end, $withScores);
-        
-        if ($withScores) {
-            $result = [];
-            foreach ($values as $value => $score) {
-                $result[$this->decodeValue($value)] = $score;
+        return $this->executeWithPool(function($redis) use ($start, $end, $withScores) {
+            $values = $redis->zRevRange($this->name, $start, $end, $withScores);
+            
+            if ($withScores) {
+                $result = [];
+                foreach ($values as $value => $score) {
+                    $result[$this->decodeValue($value)] = $score;
+                }
+                return $result;
             }
-            return $result;
-        }
-        
-        return array_values(array_map(fn($v) => $this->decodeValue($v), $values));
+            
+            return array_values(array_map(fn($v) => $this->decodeValue($v), $values));
+        });
     }
 
     /**
@@ -173,7 +185,9 @@ class RSortedSet
      */
     public function size(): int
     {
-        return $this->redis->zCard($this->name);
+        return $this->executeWithPool(function($redis) {
+            return $redis->zCard($this->name);
+        });
     }
 
     /**
@@ -191,7 +205,9 @@ class RSortedSet
      */
     public function clear(): void
     {
-        $this->redis->del($this->name);
+        $this->executeWithPool(function($redis) {
+            $redis->del($this->name);
+        });
     }
 
     /**
@@ -203,7 +219,9 @@ class RSortedSet
      */
     public function count(float $min, float $max): int
     {
-        return $this->redis->zCount($this->name, $min, $max);
+        return $this->executeWithPool(function($redis) use ($min, $max) {
+            return $redis->zCount($this->name, $min, $max);
+        });
     }
 
     /**
@@ -215,9 +233,11 @@ class RSortedSet
      */
     public function incrementScore($element, float $delta): float
     {
-        $encoded = $this->encodeValue($element);
-        $newScore = $this->redis->zIncrBy($this->name, $delta, $encoded);
-        return (float)$newScore;
+        return $this->executeWithPool(function($redis) use ($element, $delta) {
+            $encoded = $this->encodeValue($element);
+            $newScore = $redis->zIncrBy($this->name, $delta, $encoded);
+            return (float)$newScore;
+        });
     }
 
     /**
@@ -226,7 +246,7 @@ class RSortedSet
      * @param mixed $value
      * @return string
      */
-    private function encodeValue($value): string
+    protected function encodeValue($value): string
     {
         return json_encode($value);
     }
@@ -237,7 +257,7 @@ class RSortedSet
      * @param string $value
      * @return mixed
      */
-    private function decodeValue(string $value)
+    protected function decodeValue(string $value)
     {
         return json_decode($value, true);
     }
@@ -249,7 +269,9 @@ class RSortedSet
      */
     public function exists(): bool
     {
-        return $this->redis->exists($this->name) > 0;
+        return $this->executeWithPool(function($redis) {
+            return $redis->exists($this->name) > 0;
+        });
     }
 
     /**
@@ -355,9 +377,11 @@ class RSortedSet
      */
     public function removeRangeByScore(float $min, float $max): int
     {
-        // Use exclusive lower bound to match test expectations
-        // This excludes elements with score = min, but includes elements with score = max
-        return $this->redis->zRemRangeByScore($this->name, "($min", $max);
+        return $this->executeWithPool(function($redis) use ($min, $max) {
+            // Use exclusive lower bound to match test expectations
+            // This excludes elements with score = min, but includes elements with score = max
+            return $redis->zRemRangeByScore($this->name, "($min", $max);
+        });
     }
 
     /**
@@ -369,7 +393,9 @@ class RSortedSet
      */
     public function removeRange(int $start, int $end): int
     {
-        return $this->redis->zRemRangeByRank($this->name, $start, $end);
+        return $this->executeWithPool(function($redis) use ($start, $end) {
+            return $redis->zRemRangeByRank($this->name, $start, $end);
+        });
     }
 
     /**

@@ -8,15 +8,11 @@ use Redis;
  * Redisson-compatible distributed Bucket (object holder) implementation
  * Uses Redis String for distributed object storage, compatible with Redisson's RBucket
  */
-class RBucket
+class RBucket extends RedisDataStructure
 {
-    private Redis $redis;
-    private string $name;
-
-    public function __construct(Redis $redis, string $name)
+    public function __construct($connection, string $name)
     {
-        $this->redis = $redis;
-        $this->name = $name;
+        parent::__construct($connection, $name);
     }
 
     /**
@@ -26,8 +22,10 @@ class RBucket
      */
     public function get()
     {
-        $value = $this->redis->get($this->name);
-        return $value !== false ? $this->decodeValue($value) : null;
+        return $this->executeWithPool(function ($redis) {
+            $value = $redis->get($this->name);
+            return $value !== false ? $this->decodeValue($value) : null;
+        });
     }
 
     /**
@@ -37,8 +35,10 @@ class RBucket
      */
     public function set($value): void
     {
-        $encoded = $this->encodeValue($value);
-        $this->redis->set($this->name, $encoded);
+        $this->executeWithPool(function ($redis) use ($value) {
+            $encoded = $this->encodeValue($value);
+            $redis->set($this->name, $encoded);
+        });
     }
 
     /**
@@ -48,9 +48,11 @@ class RBucket
      */
     public function getAndDelete()
     {
-        $value = $this->get();
-        $this->redis->del($this->name);
-        return $value;
+        return $this->executeWithPool(function ($redis) {
+            $value = $redis->get($this->name);
+            $redis->del($this->name);
+            return $value !== false ? $this->decodeValue($value) : null;
+        });
     }
 
     /**
@@ -61,9 +63,12 @@ class RBucket
      */
     public function getAndSet($newValue)
     {
-        $old = $this->get();
-        $this->set($newValue);
-        return $old;
+        return $this->executeWithPool(function ($redis) use ($newValue) {
+            $oldValue = $redis->get($this->name);
+            $encoded = $this->encodeValue($newValue);
+            $redis->set($this->name, $encoded);
+            return $oldValue !== false ? $this->decodeValue($oldValue) : null;
+        });
     }
 
     /**
@@ -74,9 +79,11 @@ class RBucket
      */
     public function trySet($value): bool
     {
-        $encoded = $this->encodeValue($value);
-        $result = $this->redis->set($this->name, $encoded, ['NX']);
-        return $result !== false;
+        return $this->executeWithPool(function ($redis) use ($value) {
+            $encoded = $this->encodeValue($value);
+            $result = $redis->set($this->name, $encoded, ['NX']);
+            return $result !== false;
+        });
     }
 
     /**
@@ -87,9 +94,11 @@ class RBucket
      */
     public function setWithTTL($value, int $timeToLive): void
     {
-        $encoded = $this->encodeValue($value);
-        $ttl = (int)ceil($timeToLive / 1000);
-        $this->redis->setex($this->name, $ttl, $encoded);
+        $this->executeWithPool(function ($redis) use ($value, $timeToLive) {
+            $encoded = $this->encodeValue($value);
+            $ttl = (int)ceil($timeToLive / 1000);
+            $redis->setex($this->name, $ttl, $encoded);
+        });
     }
 
     /**
@@ -101,10 +110,11 @@ class RBucket
      */
     public function compareAndSet($expect, $update): bool
     {
-        $encodedExpect = $this->encodeValue($expect);
-        $encodedUpdate = $this->encodeValue($update);
+        return $this->executeWithPool(function ($redis) use ($expect, $update) {
+            $encodedExpect = $this->encodeValue($expect);
+            $encodedUpdate = $this->encodeValue($update);
 
-        $script = <<<LUA
+            $script = <<<LUA
 local value = redis.call('get', KEYS[1])
 if value == false and ARGV[1] == "null" then
     redis.call('set', KEYS[1], ARGV[2])
@@ -117,8 +127,9 @@ else
 end
 LUA;
 
-        $result = $this->redis->eval($script, [$this->name, $encodedExpect, $encodedUpdate], 1);
-        return $result === 1;
+            $result = $redis->eval($script, [$this->name, $encodedExpect, $encodedUpdate], 1);
+            return $result === 1;
+        });
     }
 
     /**
@@ -128,7 +139,9 @@ LUA;
      */
     public function isExists(): bool
     {
-        return $this->redis->exists($this->name) > 0;
+        return $this->executeWithPool(function ($redis) {
+            return $redis->exists($this->name) > 0;
+        });
     }
 
     /**
@@ -138,7 +151,9 @@ LUA;
      */
     public function delete(): bool
     {
-        return $this->redis->del($this->name) > 0;
+        return $this->executeWithPool(function ($redis) {
+            return $redis->del($this->name) > 0;
+        });
     }
 
     /**
@@ -147,7 +162,7 @@ LUA;
      * @param mixed $value
      * @return string
      */
-    private function encodeValue($value): string
+    protected function encodeValue($value): string
     {
         return json_encode($value);
     }
@@ -158,7 +173,7 @@ LUA;
      * @param string $value
      * @return mixed
      */
-    private function decodeValue(string $value)
+    protected function decodeValue(string $value)
     {
         return json_decode($value, true);
     }

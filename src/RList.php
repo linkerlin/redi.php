@@ -8,15 +8,11 @@ use Redis;
  * Redisson-compatible distributed List implementation
  * Uses Redis List structure, compatible with Redisson's RList
  */
-class RList
+class RList extends RedisDataStructure
 {
-    private Redis $redis;
-    private string $name;
-
-    public function __construct(Redis $redis, string $name)
+    public function __construct($connection, string $name)
     {
-        $this->redis = $redis;
-        $this->name = $name;
+        parent::__construct($connection, $name);
     }
 
     /**
@@ -27,8 +23,10 @@ class RList
      */
     public function add($element): bool
     {
-        $encoded = $this->encodeValue($element);
-        return $this->redis->rPush($this->name, $encoded) !== false;
+        return $this->executeWithPool(function($redis) use ($element) {
+            $encoded = $this->encodeValue($element);
+            return $redis->rPush($this->name, $encoded) !== false;
+        });
     }
 
     /**
@@ -53,8 +51,10 @@ class RList
      */
     public function get(int $index)
     {
-        $value = $this->redis->lIndex($this->name, $index);
-        return $value !== false ? $this->decodeValue($value) : null;
+        return $this->executeWithPool(function($redis) use ($index) {
+            $value = $redis->lIndex($this->name, $index);
+            return $value !== false ? $this->decodeValue($value) : null;
+        });
     }
 
     /**
@@ -66,10 +66,13 @@ class RList
      */
     public function set(int $index, $element)
     {
-        $prev = $this->get($index);
-        $encoded = $this->encodeValue($element);
-        $this->redis->lSet($this->name, $index, $encoded);
-        return $prev;
+        return $this->executeWithPool(function($redis) use ($index, $element) {
+            $prevValue = $redis->lIndex($this->name, $index);
+            $prev = $prevValue !== false ? $this->decodeValue($prevValue) : null;
+            $encoded = $this->encodeValue($element);
+            $redis->lSet($this->name, $index, $encoded);
+            return $prev;
+        });
     }
 
     /**
@@ -80,8 +83,10 @@ class RList
      */
     public function remove($element): bool
     {
-        $encoded = $this->encodeValue($element);
-        return $this->redis->lRem($this->name, $encoded, 1) > 0;
+        return $this->executeWithPool(function($redis) use ($element) {
+            $encoded = $this->encodeValue($element);
+            return $redis->lRem($this->name, $encoded, 1) > 0;
+        });
     }
 
     /**
@@ -92,17 +97,21 @@ class RList
      */
     public function removeByIndex(int $index)
     {
-        $value = $this->get($index);
-        if ($value === null) {
-            return null;
-        }
-        
-        // Use a placeholder to mark for deletion
-        $placeholder = '__REDIPHP_REMOVE_' . uniqid() . '__';
-        $this->redis->lSet($this->name, $index, $placeholder);
-        $this->redis->lRem($this->name, $placeholder, 1);
-        
-        return $value;
+        return $this->executeWithPool(function($redis) use ($index) {
+            $value = $redis->lIndex($this->name, $index);
+            if ($value === false) {
+                return null;
+            }
+            
+            $decodedValue = $this->decodeValue($value);
+            
+            // Use a placeholder to mark for deletion
+            $placeholder = '__REDIPHP_REMOVE_' . uniqid() . '__';
+            $redis->lSet($this->name, $index, $placeholder);
+            $redis->lRem($this->name, $placeholder, 1);
+            
+            return $decodedValue;
+        });
     }
 
     /**
@@ -112,7 +121,9 @@ class RList
      */
     public function size(): int
     {
-        return $this->redis->lLen($this->name);
+        return $this->executeWithPool(function($redis) {
+            return $redis->lLen($this->name);
+        });
     }
 
     /**
@@ -130,7 +141,9 @@ class RList
      */
     public function clear(): void
     {
-        $this->redis->del($this->name);
+        $this->executeWithPool(function($redis) {
+            $redis->del($this->name);
+        });
     }
 
     /**
@@ -141,13 +154,15 @@ class RList
      */
     public function contains($element): bool
     {
-        $all = $this->toArray();
-        foreach ($all as $item) {
-            if ($item === $element) {
-                return true;
+        return $this->executeWithPool(function($redis) use ($element) {
+            $values = $redis->lRange($this->name, 0, -1);
+            foreach ($values as $value) {
+                if ($this->decodeValue($value) === $element) {
+                    return true;
+                }
             }
-        }
-        return false;
+            return false;
+        });
     }
 
     /**
@@ -157,8 +172,10 @@ class RList
      */
     public function toArray(): array
     {
-        $values = $this->redis->lRange($this->name, 0, -1);
-        return array_map(fn($v) => $this->decodeValue($v), $values);
+        return $this->executeWithPool(function($redis) {
+            $values = $redis->lRange($this->name, 0, -1);
+            return array_map(fn($v) => $this->decodeValue($v), $values);
+        });
     }
 
     /**
@@ -170,8 +187,10 @@ class RList
      */
     public function range(int $start, int $end): array
     {
-        $values = $this->redis->lRange($this->name, $start, $end);
-        return array_map(fn($v) => $this->decodeValue($v), $values);
+        return $this->executeWithPool(function($redis) use ($start, $end) {
+            $values = $redis->lRange($this->name, $start, $end);
+            return array_map(fn($v) => $this->decodeValue($v), $values);
+        });
     }
 
     /**
@@ -182,28 +201,9 @@ class RList
      */
     public function trim(int $start, int $end): void
     {
-        $this->redis->lTrim($this->name, $start, $end);
+        $this->executeWithPool(function($redis) use ($start, $end) {
+            $redis->lTrim($this->name, $start, $end);
+        });
     }
 
-    /**
-     * Encode value for storage (Redisson compatibility)
-     *
-     * @param mixed $value
-     * @return string
-     */
-    private function encodeValue($value): string
-    {
-        return json_encode($value);
-    }
-
-    /**
-     * Decode value from storage
-     *
-     * @param string $value
-     * @return mixed
-     */
-    private function decodeValue(string $value)
-    {
-        return json_decode($value, true);
-    }
 }
