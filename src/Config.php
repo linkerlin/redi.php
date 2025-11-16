@@ -2,6 +2,10 @@
 
 namespace Rediphp;
 
+use RedisCluster;
+use Rediphp\RedissonClusterClient;
+use Rediphp\RedissonSentinelClient;
+
 /**
  * 环境配置管理器
  * 统一管理Redis连接配置
@@ -23,6 +27,14 @@ class Config
         // 尝试加载.env文件
         self::loadEnvFile();
 
+        // 检查是否为集群模式
+        $clusterNodes = getenv('REDIS_CLUSTER_NODES');
+        $isClusterMode = !empty($clusterNodes);
+
+        // 检查是否为Sentinel模式
+        $sentinelNodes = getenv('REDIS_SENTINELS');
+        $isSentinelMode = !empty($sentinelNodes);
+
         // 构建配置
         self::$config = [
             'host' => getenv('REDIS_HOST') ?: '127.0.0.1',
@@ -30,6 +42,18 @@ class Config
             'password' => getenv('REDIS_PASSWORD') ?: null,
             'database' => (int)(getenv('REDIS_DB') ?: getenv('REDIS_DATABASE') ?: 0),
             'timeout' => (float)(getenv('REDIS_TIMEOUT') ?: 0.0),
+            'is_cluster' => $isClusterMode,
+            'cluster_nodes' => $isClusterMode ? array_map('trim', explode(',', $clusterNodes)) : [],
+            'cluster_timeout' => (float)(getenv('REDIS_CLUSTER_TIMEOUT') ?: 5.0),
+            'cluster_read_timeout' => (float)(getenv('REDIS_CLUSTER_READ_TIMEOUT') ?: 5.0),
+            'cluster_failover' => (int)(getenv('REDIS_CLUSTER_FAILOVER') ?: RedisCluster::FAILOVER_NONE),
+            'is_sentinel' => $isSentinelMode,
+            'sentinel_nodes' => $isSentinelMode ? array_map('trim', explode(',', $sentinelNodes)) : [],
+            'sentinel_master_name' => getenv('REDIS_SENTINEL_MASTER') ?: 'mymaster',
+            'sentinel_timeout' => (float)(getenv('REDIS_SENTINEL_TIMEOUT') ?: 5.0),
+            'sentinel_read_timeout' => (float)(getenv('REDIS_SENTINEL_READ_TIMEOUT') ?: 5.0),
+            'sentinel_retry_interval' => (int)(getenv('REDIS_SENTINEL_RETRY_INTERVAL') ?: 100),
+            'sentinel_password' => getenv('REDIS_SENTINEL_PASSWORD') ?: null,
         ];
 
         return self::$config;
@@ -80,10 +104,40 @@ class Config
 
     /**
      * 创建RedissonClient实例
+     * 根据配置自动选择单节点模式、集群模式或Sentinel模式
      */
     public static function createClient(array $additionalConfig = []): RedissonClient
     {
         $config = array_merge(self::load(), $additionalConfig);
+        
+        // 检查是否为Sentinel模式
+        if ($config['is_sentinel'] && !empty($config['sentinel_nodes'])) {
+            return new RedissonSentinelClient($config);
+        }
+        
+        // 检查是否为集群模式
+        if ($config['is_cluster'] && !empty($config['cluster_nodes'])) {
+            return new RedissonClusterClient($config);
+        }
+        
         return new RedissonClient($config);
+    }
+
+    /**
+     * 创建集群客户端实例
+     */
+    public static function createClusterClient(array $additionalConfig = []): RedissonClusterClient
+    {
+        $config = array_merge(self::load(), $additionalConfig);
+        return new RedissonClusterClient($config);
+    }
+
+    /**
+     * 创建Sentinel客户端实例
+     */
+    public static function createSentinelClient(array $additionalConfig = []): RedissonSentinelClient
+    {
+        $config = array_merge(self::load(), $additionalConfig);
+        return new RedissonSentinelClient($config);
     }
 }

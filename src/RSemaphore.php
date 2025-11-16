@@ -10,24 +10,76 @@ use Redis;
  */
 class RSemaphore
 {
-    private Redis $redis;
+    private $redis;
+    private ?RedissonClient $client = null;
+    private bool $usingPool = false;
     private string $name;
 
     /**
      * RSemaphore constructor.
      *
-     * @param Redis $redis Redis connection
+     * @param Redis|RedissonClient $connection Redis connection or RedissonClient
      * @param string $name Semaphore name
      * @param int $permits Initial number of permits (default: 0)
      */
-    public function __construct(Redis $redis, string $name, int $permits = 0)
+    public function __construct($connection, string $name, int $permits = 0)
     {
-        $this->redis = $redis;
+        if ($connection instanceof RedissonClient) {
+            $this->client = $connection;
+            $this->usingPool = true;
+        } elseif ($connection instanceof Redis) {
+            $this->redis = $connection;
+            $this->usingPool = false;
+        } else {
+            throw new \InvalidArgumentException('Connection must be Redis instance or RedissonClient');
+        }
+        
         $this->name = $name;
         
         // 如果指定了初始许可数且信号量不存在，则设置初始许可数
         if ($permits > 0 && !$this->exists()) {
             $this->trySetPermits($permits);
+        }
+    }
+
+    /**
+     * Get Redis connection (handles connection pool if using RedissonClient)
+     *
+     * @return Redis
+     */
+    private function getRedis(): Redis
+    {
+        if ($this->usingPool && $this->client) {
+            return $this->client->getRedis();
+        }
+        return $this->redis;
+    }
+
+    /**
+     * Return Redis connection to pool (if using RedissonClient)
+     *
+     * @param Redis $redis
+     */
+    private function returnRedis(Redis $redis): void
+    {
+        if ($this->usingPool && $this->client) {
+            $this->client->returnRedis($redis);
+        }
+    }
+
+    /**
+     * Execute Redis operation with connection pool support
+     *
+     * @param callable $operation
+     * @return mixed
+     */
+    private function executeWithPool(callable $operation)
+    {
+        $redis = $this->getRedis();
+        try {
+            return $operation($redis);
+        } finally {
+            $this->returnRedis($redis);
         }
     }
 
@@ -39,17 +91,19 @@ class RSemaphore
      */
     public function trySetPermits(int $permits): bool
     {
-        // 如果信号量已存在，先删除旧值
-        if ($this->exists()) {
-            $this->clear();
-        }
-        
-        // 设置新的许可数
-        $result = $this->redis->set($this->name, $permits);
-        // 同时存储总许可数
-        $totalPermitsKey = $this->name . ':total';
-        $this->redis->set($totalPermitsKey, $permits);
-        return $result !== false;
+        return $this->executeWithPool(function(Redis $redis) use ($permits) {
+            // 如果信号量已存在，先删除旧值
+            if ($this->exists()) {
+                $this->clear();
+            }
+            
+            // 设置新的许可数
+            $result = $redis->set($this->name, $permits);
+            // 同时存储总许可数
+            $totalPermitsKey = $this->name . ':total';
+            $redis->set($totalPermitsKey, $permits);
+            return $result !== false;
+        });
     }
 
     /**
@@ -70,7 +124,8 @@ class RSemaphore
      */
     public function tryAcquire(int $permits = 1): bool
     {
-        $script = <<<LUA
+        return $this->executeWithPool(function(Redis $redis) use ($permits) {
+            $script = <<<LUA
 local value = redis.call('get', KEYS[1])
 if value == false then
     return 0
@@ -84,8 +139,9 @@ else
 end
 LUA;
 
-        $result = $this->redis->eval($script, [$this->name, $permits], 1);
-        return $result === 1;
+            $result = $redis->eval($script, [$this->name, $permits], 1);
+            return $result === 1;
+        });
     }
 
     /**
@@ -95,7 +151,9 @@ LUA;
      */
     public function release(int $permits = 1): void
     {
-        $this->redis->incrBy($this->name, $permits);
+        $this->executeWithPool(function(Redis $redis) use ($permits) {
+            $redis->incrBy($this->name, $permits);
+        });
     }
 
     /**
@@ -105,8 +163,10 @@ LUA;
      */
     public function availablePermits(): int
     {
-        $value = $this->redis->get($this->name);
-        return $value !== false ? (int)$value : 0;
+        return $this->executeWithPool(function(Redis $redis) {
+            $value = $redis->get($this->name);
+            return $value !== false ? (int)$value : 0;
+        });
     }
 
     /**
@@ -116,7 +176,8 @@ LUA;
      */
     public function drainPermits(): int
     {
-        $script = <<<LUA
+        return $this->executeWithPool(function(Redis $redis) {
+            $script = <<<LUA
 local value = redis.call('get', KEYS[1])
 if value == false then
     return 0
@@ -126,8 +187,9 @@ redis.call('set', KEYS[1], 0)
 return current
 LUA;
 
-        $result = $this->redis->eval($script, [$this->name], 1);
-        return (int)$result;
+            $result = $redis->eval($script, [$this->name], 1);
+            return (int)$result;
+        });
     }
 
     /**
@@ -137,7 +199,9 @@ LUA;
      */
     public function delete(): bool
     {
-        return $this->redis->del($this->name) > 0;
+        return $this->executeWithPool(function(Redis $redis) {
+            return $redis->del($this->name) > 0;
+        });
     }
 
     /**
@@ -147,7 +211,9 @@ LUA;
      */
     public function exists(): bool
     {
-        return $this->redis->exists($this->name) > 0;
+        return $this->executeWithPool(function(Redis $redis) {
+            return $redis->exists($this->name) > 0;
+        });
     }
 
     /**
@@ -157,10 +223,12 @@ LUA;
      */
     public function size(): int
     {
-        // 获取总许可数，使用单独的键来存储总许可数
-        $totalPermitsKey = $this->name . ':total';
-        $value = $this->redis->get($totalPermitsKey);
-        return $value !== false ? (int)$value : 0;
+        return $this->executeWithPool(function(Redis $redis) {
+            // 获取总许可数，使用单独的键来存储总许可数
+            $totalPermitsKey = $this->name . ':total';
+            $value = $redis->get($totalPermitsKey);
+            return $value !== false ? (int)$value : 0;
+        });
     }
 
     /**
@@ -171,10 +239,12 @@ LUA;
      */
     public function reducePermits(int $permits): void
     {
-        $this->redis->decrBy($this->name, $permits);
-        // 同时更新总许可数
-        $totalPermitsKey = $this->name . ':total';
-        $this->redis->decrBy($totalPermitsKey, $permits);
+        $this->executeWithPool(function(Redis $redis) use ($permits) {
+            $redis->decrBy($this->name, $permits);
+            // 同时更新总许可数
+            $totalPermitsKey = $this->name . ':total';
+            $redis->decrBy($totalPermitsKey, $permits);
+        });
     }
 
     /**
@@ -184,17 +254,19 @@ LUA;
      */
     public function clear(): void
     {
-        $this->redis->del($this->name);
-        // 同时清除总许可数
-        $totalPermitsKey = $this->name . ':total';
-        $this->redis->del($totalPermitsKey);
+        $this->executeWithPool(function(Redis $redis) {
+            $redis->del($this->name);
+            // 同时清除总许可数
+            $totalPermitsKey = $this->name . ':total';
+            $redis->del($totalPermitsKey);
+        });
     }
 
     /**
      * Try to acquire with timeout (simplified implementation)
      *
      * @param int $permits
-     * @param int $timeout
+     * @param int $timeout Timeout in seconds
      * @return bool
      */
     public function tryAcquireWithTimeout(int $permits = 1, int $timeout = 0): bool

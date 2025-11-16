@@ -7,8 +7,9 @@ use Redis;
 /**
  * Redisson-compatible distributed Map implementation
  * Uses Redis Hash structure, compatible with Redisson's RMap
+ * Enhanced with Pipeline support for batch operations
  */
-class RMap extends RedisDataStructure
+class RMap extends PipelineableDataStructure
 {
     public function __construct($connection, string $name)
     {
@@ -212,5 +213,156 @@ class RMap extends RedisDataStructure
             return null;
         }
         return $this->put($key, $value);
+    }
+
+    /**
+     * Pipeline-supported batch put operations
+     *
+     * @param array $map Key-value pairs to put
+     * @return array Results from batch operation
+     */
+    public function batchPut(array $map): array
+    {
+        return $this->batchWrite(function($batch) use ($map) {
+            $encoded = [];
+            foreach ($map as $key => $value) {
+                $encoded[$this->encodeKey($key)] = $this->encodeValue($value);
+            }
+            $batch->hashFields($this->name, $encoded);
+        });
+    }
+
+    /**
+     * Pipeline-supported batch get operations
+     *
+     * @param array $keys Keys to get
+     * @return array Results indexed by key
+     */
+    public function batchGet(array $keys): array
+    {
+        $results = [];
+
+        return $this->batchRead(function($batch) use ($keys, &$results) {
+            $encodedKeys = array_map([$this, 'encodeKey'], $keys);
+            $batch->hashFields($this->name, $encodedKeys, function($data) use (&$results, $keys) {
+                foreach ($keys as $index => $key) {
+                    $encodedKey = $this->encodeKey($key);
+                    $value = $data[$encodedKey] ?? null;
+                    $results[$key] = $value !== null ? $this->decodeValue($value) : null;
+                }
+            });
+        });
+    }
+
+    /**
+     * Pipeline-supported batch remove operations
+     *
+     * @param array $keys Keys to remove
+     * @return array Results from batch operation
+     */
+    public function batchRemove(array $keys): array
+    {
+        return $this->batchWrite(function($batch) use ($keys) {
+            $encodedKeys = array_map([$this, 'encodeKey'], $keys);
+            $batch->hashDeleteFields($this->name, $encodedKeys);
+        });
+    }
+
+    /**
+     * Pipeline-supported batch contains check
+     *
+     * @param array $keys Keys to check
+     * @return array Results indexed by key
+     */
+    public function batchContainsKey(array $keys): array
+    {
+        $results = [];
+
+        return $this->batchRead(function($batch) use ($keys, &$results) {
+            foreach ($keys as $key) {
+                $encodedKey = $this->encodeKey($key);
+                $batch->getPipeline()->queueCommand('hExists', [$this->name, $encodedKey]);
+            }
+
+            $pipelineResults = $batch->getPipeline()->execute();
+            foreach ($keys as $index => $key) {
+                $result = $pipelineResults[$index] ?? ['success' => false, 'data' => false];
+                $results[$key] = $result['success'] && $result['data'] > 0;
+            }
+        });
+    }
+
+    /**
+     * Pipeline-supported batch get all entries
+     *
+     * @param array $keys Keys to get entries for
+     * @return array Results indexed by key
+     */
+    public function batchGetAll(array $keys): array
+    {
+        $results = [];
+
+        return $this->batchRead(function($batch) use ($keys, &$results) {
+            $encodedKeys = array_map([$this, 'encodeKey'], $keys);
+            $batch->hashFields($this->name, $encodedKeys, function($data) use (&$results, $keys) {
+                foreach ($keys as $key) {
+                    $encodedKey = $this->encodeKey($key);
+                    $value = $data[$encodedKey] ?? null;
+                    $results[$key] = $value !== null ? $this->decodeValue($value) : null;
+                }
+            });
+        });
+    }
+
+    /**
+     * Get pipeline statistics for this Map
+     *
+     * @return array
+     */
+    public function getPipelineStats(): array
+    {
+        $baseStats = parent::getPipelineStats();
+        $baseStats['data_structure'] = 'RMap';
+        $baseStats['name'] = $this->name;
+
+        return $baseStats;
+    }
+
+    /**
+     * Performance-optimized bulk operations using fast pipeline
+     *
+     * @param callable $operations
+     * @return array
+     */
+    public function fastBatch(callable $operations): array
+    {
+        return parent::fastPipeline($operations, $this->name . '_fast');
+    }
+
+    /**
+     * Pipeline-supported conditional put operations
+     *
+     * @param array $conditions Array of ['key' => key, 'value' => value, 'condition' => callable]
+     * @return array Results from batch operation
+     */
+    public function batchPutIf(array $conditions): array
+    {
+        return $this->batchWrite(function($batch) use ($conditions) {
+            foreach ($conditions as $condition) {
+                $key = $condition['key'] ?? null;
+                $value = $condition['value'] ?? null;
+                $testFunc = $condition['condition'] ?? null;
+
+                if ($key !== null && $value !== null && $testFunc !== null) {
+                    // First check current value
+                    $currentValue = $this->get($key);
+                    if ($testFunc($currentValue)) {
+                        $encodedKey = $this->encodeKey($key);
+                        $encodedValue = $this->encodeValue($value);
+                        $batch->getPipeline()->queueCommand('hSet', [$this->name, $encodedKey, $encodedValue]);
+                    }
+                }
+            }
+        });
     }
 }

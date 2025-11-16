@@ -223,7 +223,7 @@ class RedisPromise implements PromiseInterface
      *
      * @param mixed $value
      */
-    private function doResolve($value): void
+    public function doResolve($value): void
     {
         if ($this->state !== self::STATE_PENDING) {
             return;
@@ -248,7 +248,7 @@ class RedisPromise implements PromiseInterface
      *
      * @param mixed $reason
      */
-    private function doReject($reason): void
+    public function doReject($reason): void
     {
         if ($this->state !== self::STATE_PENDING) {
             return;

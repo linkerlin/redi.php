@@ -10,15 +10,24 @@ use Redis;
  */
 class RLock
 {
-    private Redis $redis;
+    private $redis;
     private string $name;
     private ?string $lockId = null;
     private int $defaultLeaseTime = 30000; // 30 seconds in milliseconds
+    private ?RedissonClient $client = null;
+    private bool $usingPool = false;
 
-    public function __construct(Redis $redis, string $name)
+    public function __construct($connection, string $name)
     {
-        $this->redis = $redis;
         $this->name = $name;
+        
+        if ($connection instanceof RedissonClient) {
+            $this->client = $connection;
+            $this->usingPool = true;
+        } else {
+            $this->redis = $connection;
+            $this->usingPool = false;
+        }
     }
 
     /**
@@ -35,6 +44,17 @@ class RLock
 
         $this->lockId = $this->generateLockId();
         $ttl = (int)ceil($leaseTime / 1000); // Convert to seconds
+
+        if ($this->usingPool && $this->client) {
+            return $this->client->executeWithPool(function($redis) use ($ttl) {
+                $result = $redis->set(
+                    $this->name,
+                    $this->lockId,
+                    ['NX', 'EX' => $ttl]
+                );
+                return $result !== false;
+            });
+        }
 
         // Try to acquire lock with SET NX EX
         $result = $this->redis->set(
@@ -64,11 +84,21 @@ class RLock
         $waitUntil = microtime(true) + ($waitTime / 1000);
 
         do {
-            $result = $this->redis->set(
-                $this->name,
-                $this->lockId,
-                ['NX', 'EX' => $ttl]
-            );
+            if ($this->usingPool && $this->client) {
+                $result = $this->client->executeWithPool(function($redis) use ($ttl) {
+                    return $redis->set(
+                        $this->name,
+                        $this->lockId,
+                        ['NX', 'EX' => $ttl]
+                    );
+                });
+            } else {
+                $result = $this->redis->set(
+                    $this->name,
+                    $this->lockId,
+                    ['NX', 'EX' => $ttl]
+                );
+            }
 
             if ($result !== false) {
                 return true;
@@ -83,7 +113,7 @@ class RLock
     }
 
     /**
-     * Release the lock
+     * Unlock the lock
      *
      * @return bool
      */
@@ -102,7 +132,13 @@ else
 end
 LUA;
 
-        $result = $this->redis->eval($script, [$this->name, $this->lockId], 1);
+        if ($this->usingPool && $this->client) {
+            $result = $this->client->executeWithPool(function($redis) use ($script) {
+                return $redis->eval($script, [$this->name, $this->lockId], 1);
+            });
+        } else {
+            $result = $this->redis->eval($script, [$this->name, $this->lockId], 1);
+        }
         
         if ($result > 0) {
             $this->lockId = null;
@@ -119,6 +155,12 @@ LUA;
      */
     public function isLocked(): bool
     {
+        if ($this->usingPool && $this->client) {
+            return $this->client->executeWithPool(function($redis) {
+                return $redis->exists($this->name) > 0;
+            });
+        }
+        
         return $this->redis->exists($this->name) > 0;
     }
 
@@ -133,6 +175,13 @@ LUA;
             return false;
         }
 
+        if ($this->usingPool && $this->client) {
+            return $this->client->executeWithPool(function($redis) {
+                $value = $redis->get($this->name);
+                return $value === $this->lockId;
+            });
+        }
+
         $value = $this->redis->get($this->name);
         return $value === $this->lockId;
     }
@@ -144,6 +193,12 @@ LUA;
      */
     public function forceUnlock(): bool
     {
+        if ($this->usingPool && $this->client) {
+            return $this->client->executeWithPool(function($redis) {
+                return $redis->del($this->name) > 0;
+            });
+        }
+        
         return $this->redis->del($this->name) > 0;
     }
 

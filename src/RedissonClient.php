@@ -157,6 +157,25 @@ class RedissonClient
         }
     }
 
+    /**
+     * Execute a Redis operation with connection pooling support
+     * This method handles connection acquisition and return automatically
+     * Used by data structures and locks when using connection pooling
+     *
+     * @param callable $operation The Redis operation to execute
+     * @return mixed The result of the operation
+     */
+    public function executeWithPool(callable $operation)
+    {
+        $redis = $this->getRedis();
+        
+        try {
+            return $operation($redis);
+        } finally {
+            $this->returnRedis($redis);
+        }
+    }
+
 
 
     /**
@@ -233,6 +252,18 @@ class RedissonClient
     public function getDeque(string $name): RDeque
     {
         return new RDeque($this, $name);
+    }
+
+    /**
+     * Get a distributed limit Deque
+     *
+     * @param string $name Name of the deque
+     * @param int $maxSize Maximum size of the deque
+     * @return RLimitDeque
+     */
+    public function getLimitDeque(string $name, int $maxSize): RLimitDeque
+    {
+        return new RLimitDeque($this, $name, $maxSize);
     }
 
     /**

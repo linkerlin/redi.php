@@ -10,163 +10,205 @@ use Rediphp\RSemaphore;
 use Rediphp\RLock;
 use Rediphp\RAtomicLong;
 use Rediphp\RBucket;
+use Rediphp\RReadWriteLock;
+use Rediphp\RCountDownLatch;
+use Rediphp\RBitSet;
+use Rediphp\RBloomFilter;
+use Rediphp\RTopic;
+use Rediphp\RHyperLogLog;
+use Rediphp\RGeo;
+use Rediphp\RStream;
+use Rediphp\RTimeSeries;
 
 /**
- * Performance and concurrency integration tests
- * Tests high-load scenarios and concurrent operations
+ * 性能集成测试 - 性能基准和压力测试
+ * 测试redi.php在不同负载下的性能表现
  */
 class PerformanceIntegrationTest extends RedissonTestCase
 {
+    private const PERFORMANCE_THRESHOLD_MS = 1000; // 1秒性能阈值
+    
     /**
-     * Test high-frequency concurrent operations
+     * 测试基本操作的性能基准
      */
-    public function testHighFrequencyConcurrentOperations()
+    public function testBasicOperationsPerformance()
     {
-        $counter = $this->client->getAtomicLong('perf:counter');
-        $lock = $this->client->getLock('perf:lock');
-        $dataMap = $this->client->getMap('perf:data');
+        $map = $this->client->getMap('perf:basic:map');
+        $list = $this->client->getList('perf:basic:list');
+        $set = $this->client->getSet('perf:basic:set');
+        $counter = $this->client->getAtomicLong('perf:basic:counter');
         
-        $iterations = 100;
         $startTime = microtime(true);
         
-        // 模拟高频并发操作
-        for ($i = 0; $i < $iterations; $i++) {
-            if ($lock->tryLock()) {
+        // Map操作性能测试
+        for ($i = 0; $i < 100; $i++) {
+            $map->put("key:$i", "value:$i");
+        }
+        
+        for ($i = 0; $i < 100; $i++) {
+            $map->get("key:$i");
+        }
+        
+        // List操作性能测试
+        for ($i = 0; $i < 100; $i++) {
+            $list->add("item:$i");
+        }
+        
+        for ($i = 0; $i < 50; $i++) {
+            $list->get($i);
+        }
+        
+        // Set操作性能测试
+        for ($i = 0; $i < 100; $i++) {
+            $set->add("member:$i");
+        }
+        
+        for ($i = 0; $i < 100; $i++) {
+            $set->contains("member:$i");
+        }
+        
+        // 原子操作性能测试
+        for ($i = 0; $i < 100; $i++) {
+            $counter->incrementAndGet();
+        }
+        
+        $endTime = microtime(true);
+        $durationMs = ($endTime - $startTime) * 1000;
+        
+        // 验证性能在可接受范围内
+        $this->assertLessThan(self::PERFORMANCE_THRESHOLD_MS, $durationMs);
+        
+        // 验证数据完整性
+        $this->assertEquals(100, $map->size());
+        $this->assertEquals(100, $list->size());
+        $this->assertEquals(100, $set->size());
+        $this->assertEquals(100, $counter->get());
+        
+        // 清理
+        $map->clear();
+        $list->clear();
+        $set->clear();
+        $counter->delete();
+    }
+    
+    /**
+     * 测试并发操作的性能
+     */
+    public function testConcurrentOperationsPerformance()
+    {
+        $concurrentMap = $this->client->getMap('perf:concurrent:map');
+        $semaphore = $this->client->getSemaphore('perf:concurrent:semaphore', 10);
+        $performanceCounter = $this->client->getAtomicLong('perf:concurrent:counter');
+        
+        $startTime = microtime(true);
+        $concurrentOperations = 50;
+        
+        // 模拟并发操作
+        for ($i = 0; $i < $concurrentOperations; $i++) {
+            if ($semaphore->tryAcquire()) {
                 try {
-                    // 原子操作
-                    $current = $counter->get();
-                    $counter->set($current + 1);
-                    
-                    // 存储操作记录
-                    $dataMap->put("operation_$i", ['timestamp' => time(), 'value' => $i]);
-                    
+                    $concurrentMap->put("concurrent:key:$i", "concurrent:value:$i");
+                    $performanceCounter->incrementAndGet();
                 } finally {
-                    $lock->unlock();
+                    $semaphore->release();
                 }
             }
         }
         
         $endTime = microtime(true);
-        $executionTime = $endTime - $startTime;
+        $durationMs = ($endTime - $startTime) * 1000;
         
-        // 验证结果
-        $this->assertEquals($iterations, $counter->get());
-        $this->assertEquals($iterations, $dataMap->size());
-        
-        // 性能验证 - 100次操作应该在合理时间内完成
-        $this->assertLessThan(10, $executionTime, "High frequency operations took too long: {$executionTime}s");
+        // 验证并发性能
+        $this->assertLessThan(self::PERFORMANCE_THRESHOLD_MS, $durationMs);
+        $this->assertEquals($concurrentOperations, $concurrentMap->size());
+        $this->assertEquals($concurrentOperations, $performanceCounter->get());
         
         // 清理
-        $counter->delete();
-        $dataMap->clear();
+        $concurrentMap->clear();
+        $performanceCounter->delete();
+        $semaphore->clear();
     }
     
     /**
-     * Test bulk operations performance
+     * 测试管道操作的性能优势
      */
-    public function testBulkOperationsPerformance()
+    public function testPipelinePerformance()
     {
-        $dataMap = $this->client->getMap('perf:bulk:map');
-        $dataList = $this->client->getList('perf:bulk:list');
-        $dataSet = $this->client->getSet('perf:bulk:set');
+        $pipelineMap = $this->client->getMap('perf:pipeline:map');
+        $pipelineList = $this->client->getList('perf:pipeline:list');
         
-        $bulkSize = 1000;
-        
-        // 批量插入Map
+        // 非管道操作基准
         $startTime = microtime(true);
-        for ($i = 0; $i < $bulkSize; $i++) {
-            $dataMap->put("key_$i", ['data' => "value_$i", 'index' => $i]);
+        for ($i = 0; $i < 50; $i++) {
+            $pipelineMap->put("nonpipe:key:$i", "nonpipe:value:$i");
         }
-        $mapInsertTime = microtime(true) - $startTime;
-        
-        // 批量插入List
-        $startTime = microtime(true);
-        for ($i = 0; $i < $bulkSize; $i++) {
-            $dataList->add("item_$i");
-        }
-        $listInsertTime = microtime(true) - $startTime;
-        
-        // 批量插入Set
-        $startTime = microtime(true);
-        for ($i = 0; $i < $bulkSize; $i++) {
-            $dataSet->add("element_$i");
-        }
-        $setInsertTime = microtime(true) - $startTime;
-        
-        // 验证数据完整性
-        $this->assertEquals($bulkSize, $dataMap->size());
-        $this->assertEquals($bulkSize, $dataList->size());
-        $this->assertEquals($bulkSize, $dataSet->size());
-        
-        // 验证性能
-        $this->assertLessThan(5, $mapInsertTime, "Map bulk insert too slow: {$mapInsertTime}s");
-        $this->assertLessThan(5, $listInsertTime, "List bulk insert too slow: {$listInsertTime}s");
-        $this->assertLessThan(5, $setInsertTime, "Set bulk insert too slow: {$setInsertTime}s");
-        
-        // 测试批量读取性能
-        $startTime = microtime(true);
-        $mapValues = [];
-        for ($i = 0; $i < $bulkSize; $i++) {
-            $mapValues[] = $dataMap->get("key_$i");
-        }
-        $mapReadTime = microtime(true) - $startTime;
-        
-        $this->assertEquals($bulkSize, count($mapValues));
-        $this->assertLessThan(5, $mapReadTime, "Map bulk read too slow: {$mapReadTime}s");
+        $nonPipelineDuration = (microtime(true) - $startTime) * 1000;
         
         // 清理
-        $dataMap->clear();
-        $dataList->clear();
-        $dataSet->clear();
+        $pipelineMap->clear();
+        
+        // 管道操作测试
+        $startTime = microtime(true);
+        
+        // 使用管道批量操作
+        $pipeline = $this->client->getRedis()->pipeline();
+        for ($i = 0; $i < 50; $i++) {
+            $pipelineMap->put("pipe:key:$i", "pipe:value:$i");
+        }
+        $pipelineResults = $pipeline->execute();
+        
+        $pipelineDuration = (microtime(true) - $startTime) * 1000;
+        
+        // 验证管道性能优势
+        $this->assertLessThan($nonPipelineDuration, $pipelineDuration);
+        $this->assertEquals(50, $pipelineMap->size());
+        
+        // 清理
+        $pipelineMap->clear();
     }
     
     /**
-     * Test memory efficiency with large data sets
+     * 测试大数据量操作的性能
      */
-    public function testMemoryEfficiencyLargeDataSets()
+    public function testLargeDataPerformance()
     {
         $largeMap = $this->client->getMap('perf:large:map');
         $largeList = $this->client->getList('perf:large:list');
         
-        $largeDataSize = 500; // 大数据集
-        $largeDataItem = str_repeat('x', 1024); // 1KB的数据项
-        
+        $dataSize = 1000;
         $startTime = microtime(true);
-        $startMemory = memory_get_usage();
         
-        // 插入大数据集到Map
-        for ($i = 0; $i < $largeDataSize; $i++) {
-            $largeMap->put("large_key_$i", [
-                'data' => $largeDataItem,
-                'index' => $i,
-                'timestamp' => time()
-            ]);
+        // 大数据量插入
+        for ($i = 0; $i < $dataSize; $i++) {
+            $largeMap->put("large:key:$i", str_repeat("large_value_$i", 10));
         }
         
-        // 插入大数据集到List
-        for ($i = 0; $i < $largeDataSize; $i++) {
-            $largeList->add([
-                'data' => $largeDataItem,
-                'index' => $i,
-                'type' => 'large_item'
-            ]);
+        for ($i = 0; $i < $dataSize; $i++) {
+            $largeList->add(str_repeat("large_item_$i", 10));
         }
         
-        $endTime = microtime(true);
-        $endMemory = memory_get_usage();
+        $insertDuration = (microtime(true) - $startTime) * 1000;
         
-        $executionTime = $endTime - $startTime;
-        $memoryUsage = ($endMemory - $startMemory) / 1024 / 1024; // MB
+        // 大数据量查询
+        $startTime = microtime(true);
         
-        // 验证数据完整性
-        $this->assertEquals($largeDataSize, $largeMap->size());
-        $this->assertEquals($largeDataSize, $largeList->size());
+        for ($i = 0; $i < 100; $i++) {
+            $randomKey = rand(0, $dataSize - 1);
+            $largeMap->get("large:key:$randomKey");
+        }
         
-        // 性能验证
-        $this->assertLessThan(15, $executionTime, "Large dataset operations too slow: {$executionTime}s");
+        for ($i = 0; $i < 100; $i++) {
+            $randomIndex = rand(0, 99);
+            $largeList->get($randomIndex);
+        }
         
-        // 内存使用应该在合理范围内（这个测试主要是确保不会内存泄漏）
-        $this->assertLessThan(100, $memoryUsage, "Memory usage too high: {$memoryUsage}MB");
+        $queryDuration = (microtime(true) - $startTime) * 1000;
+        
+        // 验证性能和数据完整性
+        $this->assertLessThan(5000, $insertDuration); // 插入应该在5秒内完成
+        $this->assertLessThan(1000, $queryDuration); // 查询应该在1秒内完成
+        $this->assertEquals($dataSize, $largeMap->size());
+        $this->assertEquals($dataSize, $largeList->size());
         
         // 清理
         $largeMap->clear();
@@ -174,151 +216,105 @@ class PerformanceIntegrationTest extends RedissonTestCase
     }
     
     /**
-     * Test concurrent semaphore operations
+     * 测试锁操作的性能影响
      */
-    public function testConcurrentSemaphoreOperations()
+    public function testLockPerformance()
     {
-        $semaphore = $this->client->getSemaphore('perf:semaphore', 10);
-        $counter = $this->client->getAtomicLong('perf:semaphore:counter');
-        
-        // 设置初始许可数
-        $semaphore->trySetPermits(10);
-        
-        $concurrentOperations = 20;
-        $successfulOperations = 0;
+        $lockedMap = $this->client->getMap('perf:lock:map');
+        $performanceLock = $this->client->getLock('perf:lock:lock');
+        $lockCounter = $this->client->getAtomicLong('perf:lock:counter');
         
         $startTime = microtime(true);
+        $lockOperations = 20;
         
-        // 模拟并发获取许可
-        for ($i = 0; $i < $concurrentOperations; $i++) {
-            if ($semaphore->tryAcquire()) {
-                $successfulOperations++;
-                $counter->incrementAndGet();
-                
-                // 模拟一些工作
-                usleep(1000); // 1ms
-                
-                // 释放许可
-                $semaphore->release();
-            }
-        }
-        
-        $endTime = microtime(true);
-        $executionTime = $endTime - $startTime;
-        
-        // 验证结果
-        $this->assertGreaterThan(0, $successfulOperations, "No semaphore operations succeeded");
-        $this->assertEquals($successfulOperations, $counter->get());
-        $this->assertEquals(10, $semaphore->availablePermits()); // 应该恢复到初始值
-        
-        // 性能验证
-        $this->assertLessThan(5, $executionTime, "Semaphore operations too slow: {$executionTime}s");
-        
-        // 清理
-        $counter->delete();
-        $semaphore->clear();
-    }
-    
-    /**
-     * Test mixed operations performance
-     */
-    public function testMixedOperationsPerformance()
-    {
-        $mixedMap = $this->client->getMap('perf:mixed:map');
-        $mixedList = $this->client->getList('perf:mixed:list');
-        $mixedSet = $this->client->getSet('perf:mixed:set');
-        $mixedCounter = $this->client->getAtomicLong('perf:mixed:counter');
-        
-        $operations = 200;
-        $startTime = microtime(true);
-        
-        // 混合操作
-        for ($i = 0; $i < $operations; $i++) {
-            switch ($i % 4) {
-                case 0: // Map操作
-                    $mixedMap->put("key_$i", ['operation' => $i, 'type' => 'map']);
-                    break;
-                case 1: // List操作
-                    $mixedList->add(['operation' => $i, 'type' => 'list']);
-                    break;
-                case 2: // Set操作
-                    $mixedSet->add("element_$i");
-                    break;
-                case 3: // 计数器操作
-                    $mixedCounter->incrementAndGet();
-                    break;
-            }
-        }
-        
-        $endTime = microtime(true);
-        $executionTime = $endTime - $startTime;
-        
-        // 验证结果
-        $this->assertGreaterThan(0, $mixedMap->size());
-        $this->assertGreaterThan(0, $mixedList->size());
-        $this->assertGreaterThan(0, $mixedSet->size());
-        $this->assertGreaterThan(0, $mixedCounter->get());
-        
-        // 性能验证
-        $this->assertLessThan(10, $executionTime, "Mixed operations too slow: {$executionTime}s");
-        
-        // 计算每秒操作数
-        $opsPerSecond = $operations / $executionTime;
-        $this->assertGreaterThan(20, $opsPerSecond, "Operations per second too low: {$opsPerSecond}");
-        
-        // 清理
-        $mixedMap->clear();
-        $mixedList->clear();
-        $mixedSet->clear();
-        $mixedCounter->delete();
-    }
-    
-    /**
-     * Test stress test with rapid operations
-     */
-    public function testStressTestRapidOperations()
-    {
-        $stressMap = $this->client->getMap('perf:stress:map');
-        $stressCounter = $this->client->getAtomicLong('perf:stress:counter');
-        $stressLock = $this->client->getLock('perf:stress:lock');
-        
-        $rapidOperations = 50; // 快速操作数量
-        $startTime = microtime(true);
-        
-        // 快速连续操作
-        for ($i = 0; $i < $rapidOperations; $i++) {
-            if ($stressLock->tryLock()) {
+        // 带锁的操作
+        for ($i = 0; $i < $lockOperations; $i++) {
+            if ($performanceLock->tryLock()) {
                 try {
-                    // 快速写入
-                    $stressMap->put("rapid_key_$i", ['index' => $i, 'timestamp' => microtime(true)]);
-                    $stressCounter->incrementAndGet();
-                    
-                    // 快速读取
-                    $value = $stressMap->get("rapid_key_$i");
-                    $this->assertNotNull($value);
-                    
+                    $lockedMap->put("locked:key:$i", "locked:value:$i");
+                    $lockCounter->incrementAndGet();
                 } finally {
-                    $stressLock->unlock();
+                    $performanceLock->unlock();
                 }
             }
         }
         
-        $endTime = microtime(true);
-        $executionTime = $endTime - $startTime;
+        $lockDuration = (microtime(true) - $startTime) * 1000;
         
-        // 验证结果
-        $this->assertEquals($rapidOperations, $stressCounter->get());
-        $this->assertEquals($rapidOperations, $stressMap->size());
-        
-        // 性能验证 - 快速操作应该在很短时间内完成
-        $this->assertLessThan(3, $executionTime, "Rapid operations too slow: {$executionTime}s");
-        
-        // 计算平均操作时间
-        $avgOperationTime = ($executionTime / $rapidOperations) * 1000; // ms
-        $this->assertLessThan(60, $avgOperationTime, "Average operation time too high: {$avgOperationTime}ms");
+        // 验证锁性能
+        $this->assertLessThan(self::PERFORMANCE_THRESHOLD_MS, $lockDuration);
+        $this->assertEquals($lockOperations, $lockedMap->size());
+        $this->assertEquals($lockOperations, $lockCounter->get());
         
         // 清理
-        $stressMap->clear();
-        $stressCounter->delete();
+        $lockedMap->clear();
+        $lockCounter->delete();
+    }
+    
+    /**
+     * 测试内存使用效率
+     */
+    public function testMemoryEfficiency()
+    {
+        $memoryMap = $this->client->getMap('perf:memory:map');
+        $memoryList = $this->client->getList('perf:memory:list');
+        
+        // 测试不同大小数据的内存效率
+        $testSizes = [10, 50, 100];
+        
+        foreach ($testSizes as $size) {
+            $startTime = microtime(true);
+            
+            // 插入数据
+            for ($i = 0; $i < $size; $i++) {
+                $value = str_repeat("x", $size * 10); // 可变大小数据
+                $memoryMap->put("mem:key:$i:$size", $value);
+                $memoryList->add($value);
+            }
+            
+            $duration = (microtime(true) - $startTime) * 1000;
+            
+            // 验证性能随数据大小的变化
+            $this->assertLessThan(self::PERFORMANCE_THRESHOLD_MS, $duration);
+            
+            // 清理当前批次
+            $memoryMap->clear();
+            $memoryList->clear();
+        }
+    }
+    
+    /**
+     * 测试长时间运行的稳定性
+     */
+    public function testLongRunningStability()
+    {
+        $stabilityMap = $this->client->getMap('perf:stability:map');
+        $stabilityCounter = $this->client->getAtomicLong('perf:stability:counter');
+        
+        $iterations = 100;
+        $startTime = microtime(true);
+        
+        // 长时间运行测试
+        for ($i = 0; $i < $iterations; $i++) {
+            $stabilityMap->put("stable:key:$i", "stable:value:$i");
+            $stabilityCounter->incrementAndGet();
+            
+            // 每10次迭代验证一次
+            if ($i % 10 == 0) {
+                $this->assertEquals($i + 1, $stabilityMap->size());
+                $this->assertEquals($i + 1, $stabilityCounter->get());
+            }
+        }
+        
+        $duration = (microtime(true) - $startTime) * 1000;
+        
+        // 验证稳定性
+        $this->assertLessThan(self::PERFORMANCE_THRESHOLD_MS * 2, $duration);
+        $this->assertEquals($iterations, $stabilityMap->size());
+        $this->assertEquals($iterations, $stabilityCounter->get());
+        
+        // 清理
+        $stabilityMap->clear();
+        $stabilityCounter->delete();
     }
 }

@@ -3,6 +3,7 @@
 namespace Rediphp;
 
 use Redis;
+use Rediphp\Services\SerializationService;
 
 /**
  * Redisson-compatible distributed BloomFilter implementation
@@ -41,7 +42,7 @@ class RBloomFilter
 
         // Store config
         $configKey = $this->name . ':config';
-        $config = json_encode([
+        $config = SerializationService::getInstance()->encode([
             'size' => $this->size,
             'hashIterations' => $this->hashIterations,
             'expectedInsertions' => $expectedInsertions,
@@ -61,7 +62,7 @@ class RBloomFilter
         $config = $this->redis->get($configKey);
         
         if ($config !== false) {
-            $data = json_decode($config, true);
+            $data = SerializationService::getInstance()->decode($config, true);
             $this->size = $data['size'];
             $this->hashIterations = $data['hashIterations'];
             $this->expectedInsertions = $data['expectedInsertions'];
@@ -178,7 +179,7 @@ class RBloomFilter
      */
     private function hash($element): string
     {
-        return hash('sha256', json_encode($element), true);
+        return hash('sha256', SerializationService::getInstance()->encode($element), true);
     }
 
     /**

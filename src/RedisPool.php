@@ -120,7 +120,7 @@ class RedisPool
             usleep(10000); // 等待10ms
         }
 
-        throw new RuntimeException("Failed to acquire Redis connection within {$this->maxWait_time} seconds");
+        throw new RuntimeException("Failed to acquire Redis connection within {$this->maxWaitTime} seconds");
     }
 
     /**

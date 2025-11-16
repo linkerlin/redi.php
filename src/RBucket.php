@@ -164,7 +164,7 @@ LUA;
      */
     protected function encodeValue($value): string
     {
-        return json_encode($value);
+        return $this->serializationService->encode($value);
     }
 
     /**
@@ -175,6 +175,6 @@ LUA;
      */
     protected function decodeValue(string $value)
     {
-        return json_decode($value, true);
+        return $this->serializationService->decode($value);
     }
 }

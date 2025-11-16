@@ -3,6 +3,10 @@
 namespace Rediphp;
 
 use Redis;
+use Rediphp\Services\SerializationService;
+use Rediphp\RedissonClient;
+use Rediphp\RedissonSentinelClient;
+use Rediphp\RedissonClusterClient;
 
 /**
  * Base class for all Redis data structures
@@ -12,21 +16,25 @@ abstract class RedisDataStructure
 {
     protected Redis $redis;
     protected string $name;
-    protected ?RedissonClient $client = null;
+    protected $client = null;
     protected bool $usingPool = false;
+    protected SerializationService $serializationService;
 
     /**
      * Constructor for data structures
      * Supports both direct Redis connections and RedissonClient with connection pooling
      *
-     * @param Redis|RedissonClient $connection Redis connection or RedissonClient instance
+     * @param Redis|RedissonClient|RedissonSentinelClient|RedissonClusterClient $connection Redis connection or client instance
      * @param string $name Name of the data structure
      */
     public function __construct($connection, string $name)
     {
         $this->name = $name;
+        $this->serializationService = SerializationService::getInstance();
         
-        if ($connection instanceof RedissonClient) {
+        if ($connection instanceof RedissonClient || 
+            $connection instanceof RedissonSentinelClient || 
+            $connection instanceof RedissonClusterClient) {
             $this->client = $connection;
             $this->usingPool = true;
             // 连接将在需要时从连接池获取
@@ -93,7 +101,7 @@ abstract class RedisDataStructure
         if (is_string($key)) {
             return $key;
         }
-        return serialize($key);
+        return $this->serializationService->encode($key);
     }
 
     /**
@@ -105,8 +113,11 @@ abstract class RedisDataStructure
     protected function decodeKey(string $key)
     {
         // Try to unserialize, if it fails return as string
-        $result = @unserialize($key);
-        return $result !== false ? $result : $key;
+        try {
+            return $this->serializationService->decode($key);
+        } catch (\Exception $e) {
+            return $key;
+        }
     }
 
     /**
@@ -117,7 +128,7 @@ abstract class RedisDataStructure
      */
     protected function encodeValue($value): string
     {
-        return serialize($value);
+        return $this->serializationService->encode($value);
     }
 
     /**
@@ -128,7 +139,16 @@ abstract class RedisDataStructure
      */
     protected function decodeValue(string $value)
     {
-        return unserialize($value);
+        // 处理可能的反序列化错误
+        if (empty($value)) {
+            return null;
+        }
+        
+        try {
+            return $this->serializationService->decode($value);
+        } catch (\Exception $e) {
+            return $value;
+        }
     }
 
     /**

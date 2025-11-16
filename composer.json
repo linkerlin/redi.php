@@ -2,6 +2,7 @@
     "name": "linkerlin/redi.php",
     "description": "A pure PHP distributed data structures library, equivalent to Redisson implementation for PHP. Fully compatible with Redisson data structures.",
     "type": "library",
+    "version": "1.1.0",
     "license": "Apache-2.0",
     "keywords": [
         "redis",
@@ -20,7 +21,7 @@
         }
     ],
     "require": {
-        "php": ">=7.4",
+        "php": ">=8.2",
         "ext-redis": "*"
     },
     "require-dev": {
@@ -34,7 +35,8 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "Rediphp\\Tests\\": "tests/"
+            "Rediphp\\Tests\\": "tests/",
+            "Rediphp\\Benchmarks\\": "benchmarks/"
         }
     }
 }

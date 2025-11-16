@@ -10,13 +10,22 @@ use Redis;
  */
 class RAtomicLong
 {
-    private Redis $redis;
+    private $redis;
     private string $name;
+    private ?RedissonClient $client = null;
+    private bool $usingPool = false;
 
-    public function __construct(Redis $redis, string $name)
+    public function __construct($connection, string $name)
     {
-        $this->redis = $redis;
         $this->name = $name;
+        
+        if ($connection instanceof RedissonClient) {
+            $this->client = $connection;
+            $this->usingPool = true;
+        } else {
+            $this->redis = $connection;
+            $this->usingPool = false;
+        }
     }
 
     /**
@@ -26,6 +35,13 @@ class RAtomicLong
      */
     public function get(): int
     {
+        if ($this->usingPool && $this->client) {
+            return $this->client->executeWithPool(function($redis) {
+                $value = $redis->get($this->name);
+                return $value !== false ? (int)$value : 0;
+            });
+        }
+        
         $value = $this->redis->get($this->name);
         return $value !== false ? (int)$value : 0;
     }
@@ -37,6 +53,13 @@ class RAtomicLong
      */
     public function set(int $newValue): void
     {
+        if ($this->usingPool && $this->client) {
+            $this->client->executeWithPool(function($redis) use ($newValue) {
+                $redis->set($this->name, $newValue);
+            });
+            return;
+        }
+        
         $this->redis->set($this->name, $newValue);
     }
 
@@ -73,6 +96,13 @@ else
 end
 LUA;
 
+        if ($this->usingPool && $this->client) {
+            return $this->client->executeWithPool(function($redis) use ($script, $expect, $update) {
+                $result = $redis->eval($script, [$this->name, $expect, $update], 1);
+                return $result === 1;
+            });
+        }
+        
         $result = $this->redis->eval($script, [$this->name, $expect, $update], 1);
         return $result === 1;
     }
@@ -85,6 +115,12 @@ LUA;
      */
     public function addAndGet(int $delta = 1): int
     {
+        if ($this->usingPool && $this->client) {
+            return $this->client->executeWithPool(function($redis) use ($delta) {
+                return $redis->incrBy($this->name, $delta);
+            });
+        }
+        
         return $this->redis->incrBy($this->name, $delta);
     }
 
@@ -148,6 +184,12 @@ LUA;
      */
     public function delete(): bool
     {
+        if ($this->usingPool && $this->client) {
+            return $this->client->executeWithPool(function($redis) {
+                return $redis->del($this->name) > 0;
+            });
+        }
+        
         return $this->redis->del($this->name) > 0;
     }
 }

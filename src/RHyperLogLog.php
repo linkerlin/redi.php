@@ -3,6 +3,7 @@
 namespace Rediphp;
 
 use Redis;
+use Rediphp\Services\SerializationService;
 
 /**
  * Redisson-compatible distributed HyperLogLog implementation
@@ -136,7 +137,7 @@ class RHyperLogLog
      */
     private function encodeValue($value): string
     {
-        return json_encode($value);
+        return SerializationService::getInstance()->encode($value);
     }
 
     /**
@@ -147,6 +148,6 @@ class RHyperLogLog
      */
     private function decodeValue(string $value)
     {
-        return json_decode($value, true);
+        return SerializationService::getInstance()->decode($value, true);
     }
 }

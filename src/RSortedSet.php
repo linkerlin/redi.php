@@ -3,6 +3,7 @@
 namespace Rediphp;
 
 use Redis;
+use Rediphp\Services\SerializationService;
 
 /**
  * Redisson-compatible distributed SortedSet implementation
@@ -248,7 +249,7 @@ class RSortedSet extends RedisDataStructure
      */
     protected function encodeValue($value): string
     {
-        return json_encode($value);
+        return SerializationService::getInstance()->encode($value);
     }
 
     /**
@@ -259,7 +260,7 @@ class RSortedSet extends RedisDataStructure
      */
     protected function decodeValue(string $value)
     {
-        return json_decode($value, true);
+        return SerializationService::getInstance()->decode($value, true);
     }
 
     /**

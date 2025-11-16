@@ -3,6 +3,7 @@
 namespace Rediphp;
 
 use Redis;
+use Rediphp\Services\SerializationService;
 
 /**
  * Redisson-compatible distributed PatternTopic for pattern-based pub/sub
@@ -51,6 +52,6 @@ class RPatternTopic
      */
     private function decodeValue(string $value)
     {
-        return json_decode($value, true);
+        return SerializationService::getInstance()->decode($value, true);
     }
 }

@@ -3,6 +3,7 @@
 namespace Rediphp;
 
 use Redis;
+use Rediphp\Services\SerializationService;
 
 /**
  * Redisson-compatible distributed TimeSeries implementation
@@ -55,7 +56,7 @@ class RTimeSeries
 
         // Add tags if provided
         if (!empty($tags)) {
-            $data['tags'] = json_encode($tags);
+            $data['tags'] = SerializationService::getInstance()->encode($tags);
         }
 
         // Create a unique key for this data point
@@ -124,7 +125,7 @@ class RTimeSeries
         ];
 
         if (isset($data['tags'])) {
-            $result['tags'] = json_decode($data['tags'], true);
+            $result['tags'] = SerializationService::getInstance()->decode($data['tags'], true);
         }
 
         return $result;

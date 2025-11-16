@@ -7,8 +7,9 @@ use Redis;
 /**
  * Redisson-compatible distributed Set implementation
  * Uses Redis Set structure, compatible with Redisson's RSet
+ * Enhanced with Pipeline support for batch operations
  */
-class RSet extends RedisDataStructure
+class RSet extends PipelineableDataStructure
 {
     public function __construct($connection, string $name)
     {
@@ -250,6 +251,234 @@ class RSet extends RedisDataStructure
     {
         return $this->executeWithPool(function($redis) {
             return $redis->exists($this->name) && $this->size() > 0;
+        });
+    }
+
+    /**
+     * Pipeline-supported batch add operations
+     *
+     * @param array $elements Elements to add
+     * @return array Results from batch operation
+     */
+    public function batchAdd(array $elements): array
+    {
+        return $this->batchWrite(function($batch) use ($elements) {
+            foreach ($elements as $element) {
+                $encoded = $this->encodeValue($element);
+                $batch->getPipeline()->queueCommand('sAdd', [$this->name, $encoded]);
+            }
+        });
+    }
+
+    /**
+     * Pipeline-supported batch remove operations
+     *
+     * @param array $elements Elements to remove
+     * @return array Results from batch operation
+     */
+    public function batchRemove(array $elements): array
+    {
+        return $this->batchWrite(function($batch) use ($elements) {
+            foreach ($elements as $element) {
+                $encoded = $this->encodeValue($element);
+                $batch->getPipeline()->queueCommand('sRem', [$this->name, $encoded]);
+            }
+        });
+    }
+
+    /**
+     * Pipeline-supported batch contains check
+     *
+     * @param array $elements Elements to check
+     * @return array Results indexed by element
+     */
+    public function batchContains(array $elements): array
+    {
+        $results = [];
+
+        return $this->batchRead(function($batch) use ($elements, &$results) {
+            foreach ($elements as $element) {
+                $encoded = $this->encodeValue($element);
+                $batch->getPipeline()->queueCommand('sIsMember', [$this->name, $encoded]);
+            }
+
+            $pipelineResults = $batch->getPipeline()->execute();
+            foreach ($elements as $index => $element) {
+                $result = $pipelineResults[$index] ?? ['success' => false, 'data' => false];
+                $results[$element] = $result['success'] && $result['data'] > 0;
+            }
+        });
+    }
+
+    /**
+     * Pipeline-supported batch get all elements with membership check
+     *
+     * @param array $elements Elements to check existence
+     * @return array Results with member status
+     */
+    public function batchGetWithMembership(array $elements): array
+    {
+        $results = [];
+
+        return $this->batchRead(function($batch) use ($elements, &$results) {
+            foreach ($elements as $element) {
+                $encoded = $this->encodeValue($element);
+                $batch->getPipeline()->queueCommand('sIsMember', [$this->name, $encoded]);
+            }
+
+            $pipelineResults = $batch->getPipeline()->execute();
+            foreach ($elements as $index => $element) {
+                $result = $pipelineResults[$index] ?? ['success' => false, 'data' => false];
+                $results[$element] = [
+                    'exists' => $result['success'] && $result['data'] > 0,
+                    'value' => $element
+                ];
+            }
+        });
+    }
+
+    /**
+     * Pipeline-supported batch size check
+     *
+     * @param array $sets Set names to check sizes
+     * @return array Results indexed by set name
+     */
+    public function batchGetSizes(array $sets): array
+    {
+        $results = [];
+
+        return $this->batchRead(function($batch) use ($sets, &$results) {
+            foreach ($sets as $setName) {
+                $batch->getPipeline()->queueCommand('scard', [$setName]);
+            }
+
+            $pipelineResults = $batch->getPipeline()->execute();
+            foreach ($sets as $index => $setName) {
+                $result = $pipelineResults[$index] ?? ['success' => false, 'data' => 0];
+                $results[$setName] = $result['success'] ? $result['data'] : 0;
+            }
+        });
+    }
+
+    /**
+     * Get pipeline statistics for this Set
+     *
+     * @return array
+     */
+    public function getPipelineStats(): array
+    {
+        $baseStats = parent::getPipelineStats();
+        $baseStats['data_structure'] = 'RSet';
+        $baseStats['name'] = $this->name;
+
+        return $baseStats;
+    }
+
+    /**
+     * Performance-optimized bulk operations using fast pipeline
+     *
+     * @param callable $operations
+     * @return array
+     */
+    public function fastBatch(callable $operations): array
+    {
+        return parent::fastPipeline($operations, $this->name . '_fast');
+    }
+
+    /**
+     * Pipeline-supported conditional add operations
+     *
+     * @param array $conditions Array of ['element' => element, 'condition' => callable]
+     * @return array Results from batch operation
+     */
+    public function batchAddIf(array $conditions): array
+    {
+        return $this->batchWrite(function($batch) use ($conditions) {
+            foreach ($conditions as $condition) {
+                $element = $condition['element'] ?? null;
+                $testFunc = $condition['condition'] ?? null;
+
+                if ($element !== null && $testFunc !== null) {
+                    // Check if we should add based on condition
+                    if ($testFunc($this->size())) {
+                        $encoded = $this->encodeValue($element);
+                        $batch->getPipeline()->queueCommand('sAdd', [$this->name, $encoded]);
+                    }
+                }
+            }
+        });
+    }
+
+    /**
+     * Pipeline-supported batch union with other sets
+     *
+     * @param array $otherSets Array of RSet instances
+     * @return array Results from batch operation
+     */
+    public function batchUnion(array $otherSets): array
+    {
+        return $this->batchWrite(function($batch) use ($otherSets) {
+            foreach ($otherSets as $setName => $set) {
+                if ($set instanceof RSet) {
+                    // Get elements from other set and add to current
+                    $elements = $set->toArray();
+                    foreach ($elements as $element) {
+                        $encoded = $this->encodeValue($element);
+                        $batch->getPipeline()->queueCommand('sAdd', [$this->name, $encoded]);
+                    }
+                }
+            }
+        });
+    }
+
+    /**
+     * Pipeline-supported batch intersection with other sets
+     *
+     * @param array $otherSets Array of RSet instances  
+     * @return array Results from batch operation
+     */
+    public function batchIntersection(array $otherSets): array
+    {
+        return $this->batchWrite(function($batch) use ($otherSets) {
+            // Get current set elements
+            $currentElements = $this->toArray();
+            
+            foreach ($otherSets as $set) {
+                if ($set instanceof RSet) {
+                    // Keep only elements that exist in all sets
+                    $intersection = [];
+                    foreach ($currentElements as $element) {
+                        if ($set->contains($element)) {
+                            $intersection[] = $element;
+                        }
+                    }
+                    $currentElements = $intersection;
+                }
+            }
+            
+            // Clear current set and add intersection
+            $batch->getPipeline()->queueCommand('del', [$this->name]);
+            foreach ($currentElements as $element) {
+                $encoded = $this->encodeValue($element);
+                $batch->getPipeline()->queueCommand('sAdd', [$this->name, $encoded]);
+            }
+        });
+    }
+
+    /**
+     * Pipeline-supported bulk random operations
+     *
+     * @param int $count Number of random elements to get
+     * @param bool $remove Whether to remove the elements
+     * @return array Results from batch operation
+     */
+    public function batchRandom(int $count = 1, bool $remove = false): array
+    {
+        $results = [];
+
+        return $this->batchRead(function($batch) use ($count, $remove, &$results) {
+            $command = $remove ? 'sPop' : 'sRandMember';
+            $batch->getPipeline()->queueCommand($command, [$this->name, $count]);
         });
     }
 }

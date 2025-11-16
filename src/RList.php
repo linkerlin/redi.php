@@ -7,8 +7,9 @@ use Redis;
 /**
  * Redisson-compatible distributed List implementation
  * Uses Redis List structure, compatible with Redisson's RList
+ * Enhanced with Pipeline support for batch operations
  */
-class RList extends RedisDataStructure
+class RList extends PipelineableDataStructure
 {
     public function __construct($connection, string $name)
     {
@@ -206,4 +207,96 @@ class RList extends RedisDataStructure
         });
     }
 
+    /**
+     * Pipeline-supported batch add operations
+     *
+     * @param array $elements Elements to add
+     * @return array Results from batch operation
+     */
+    public function batchAdd(array $elements): array
+    {
+        return $this->batchWrite(function($batch) use ($elements) {
+            $batch->listAdd($this->name, $elements);
+        });
+    }
+
+    /**
+     * Pipeline-supported batch get operations
+     *
+     * @param array $indices Indices to get
+     * @return array Results indexed by position
+     */
+    public function batchGet(array $indices): array
+    {
+        $results = [];
+
+        return $this->batchRead(function($batch) use ($indices, &$results) {
+            foreach ($indices as $index) {
+                $batch->getMultiple([$index], function($data) use (&$results, $index) {
+                    $results[$index] = $data[$index] ?? null;
+                });
+            }
+        });
+    }
+
+    /**
+     * Pipeline-supported batch remove operations
+     *
+     * @param array $elements Elements to remove
+     * @return array Results from batch operation
+     */
+    public function batchRemove(array $elements): array
+    {
+        return $this->batchWrite(function($batch) use ($elements) {
+            foreach ($elements as $element) {
+                $encoded = $this->encodeValue($element);
+                $batch->getPipeline()->queueCommand('lRem', [$this->name, $encoded, 1]);
+            }
+        });
+    }
+
+    /**
+     * Pipeline-supported bulk get range operation
+     *
+     * @param array $ranges Array of [start, end] pairs
+     * @return array Results indexed by range
+     */
+    public function batchRange(array $ranges): array
+    {
+        $results = [];
+
+        return $this->batchRead(function($batch) use ($ranges, &$results) {
+            foreach ($ranges as $index => $range) {
+                list($start, $end) = $range;
+                $batch->listRange($this->name, $start, $end, function($data) use (&$results, $index) {
+                    $results[$index] = $data;
+                });
+            }
+        });
+    }
+
+    /**
+     * Get pipeline statistics for this List
+     *
+     * @return array
+     */
+    public function getPipelineStats(): array
+    {
+        $baseStats = parent::getPipelineStats();
+        $baseStats['data_structure'] = 'RList';
+        $baseStats['name'] = $this->name;
+
+        return $baseStats;
+    }
+
+    /**
+     * Performance-optimized bulk operations using fast pipeline
+     *
+     * @param callable $operations
+     * @return array
+     */
+    public function fastBatch(callable $operations): array
+    {
+        return parent::fastPipeline($operations, $this->name . '_fast');
+    }
 }

@@ -3,6 +3,7 @@
 namespace Rediphp;
 
 use Redis;
+use Rediphp\Services\SerializationService;
 
 /**
  * Redisson-compatible distributed Stream implementation
@@ -342,11 +343,7 @@ class RStream
      */
     private function encodeValue($value): string
     {
-        $result = json_encode($value);
-        if ($result === false) {
-            throw new \RuntimeException('Failed to encode value: ' . json_last_error_msg());
-        }
-        return $result;
+        return SerializationService::getInstance()->encode($value);
     }
 
     /**
@@ -357,6 +354,6 @@ class RStream
      */
     private function decodeValue(string $value)
     {
-        return json_decode($value, true);
+        return SerializationService::getInstance()->decode($value, true);
     }
 }

@@ -3,7 +3,6 @@
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use Rediphp\RedissonClient;
-use Exception;
 
 // 获取参数
 $paramsStr = $argv[1] ?? '';
@@ -161,5 +160,6 @@ try {
     exit(0);
 } catch (Exception $e) {
     file_put_contents('/tmp/concurrency_test_error.log', $e->getMessage() . "\n", FILE_APPEND);
+    file_put_contents('/tmp/concurrency_test_error.log', "Stack trace: " . $e->getTraceAsString() . "\n\n", FILE_APPEND);
     exit(1);
 }
