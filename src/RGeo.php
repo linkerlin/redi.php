@@ -29,9 +29,25 @@ class RGeo
      * @param float $latitude Latitude (-85.05112878 to 85.05112878)
      * @param string $member Member name
      * @return int Number of elements added (0 or 1)
+     * @throws \InvalidArgumentException If coordinates are invalid
      */
     public function add(float $longitude, float $latitude, string $member): int
     {
+        // 验证经度范围
+        if ($longitude < -180 || $longitude > 180) {
+            throw new \InvalidArgumentException('Invalid longitude: must be between -180 and 180');
+        }
+        
+        // 验证纬度范围
+        if ($latitude < -85.05112878 || $latitude > 85.05112878) {
+            throw new \InvalidArgumentException('Invalid latitude: must be between -85.05112878 and 85.05112878');
+        }
+        
+        // 验证成员名
+        if (empty($member)) {
+            throw new \InvalidArgumentException('Member name cannot be empty');
+        }
+        
         return $this->redis->geoAdd($this->name, $longitude, $latitude, $member);
     }
 

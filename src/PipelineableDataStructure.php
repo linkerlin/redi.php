@@ -33,7 +33,7 @@ abstract class PipelineableDataStructure extends RedisDataStructure
      * @param string $pipelineName Optional pipeline name
      * @return array Results from pipeline execution
      */
-    public function pipeline(callable $operations, string $pipelineName = null): array
+    public function pipeline(callable $operations, ?string $pipelineName = null): array
     {
         $pipelineName = $pipelineName ?? (get_class($this) . '_' . $this->name . '_' . uniqid());
         
@@ -51,7 +51,7 @@ abstract class PipelineableDataStructure extends RedisDataStructure
      * @param string $pipelineName
      * @return array
      */
-    public function fastPipeline(callable $operations, string $pipelineName = null): array
+    public function fastPipeline(callable $operations, ?string $pipelineName = null): array
     {
         return $this->executeWithPool(function(Redis $redis) use ($operations) {
             return $this->getPipelineFactory()->fastBatch($redis, $operations);
@@ -67,7 +67,7 @@ abstract class PipelineableDataStructure extends RedisDataStructure
      * @param string $pipelineName
      * @return array
      */
-    public function transaction(callable $operations, ?callable $onCommit = null, ?callable $onRollback = null, string $pipelineName = null): array
+    public function transaction(callable $operations, ?callable $onCommit = null, ?callable $onRollback = null, ?string $pipelineName = null): array
     {
         return $this->executeWithPool(function(Redis $redis) use ($operations, $onCommit, $onRollback) {
             return $this->getPipelineFactory()->transaction($redis, $operations, $onCommit, $onRollback);

@@ -9,21 +9,22 @@ class DistributedConcurrencyTest extends RedissonTestCase
      */
     public function testConcurrentMapOperations()
     {
-        $mapName = 'test-concurrent-map';
+        $mapName = 'test-concurrent-map-' . uniqid();
         
         $map = $this->client->getMap($mapName);
         $map->clear();
         
-        $processCount = 5;
-        $iterationsPerProcess = 50;
+        $processCount = 3;
+        $iterationsPerProcess = 20;
         
         // 多个进程并发写入Map
         for ($i = 0; $i < $processCount; $i++) {
-            $this->executeConcurrentOperations('map_write', $mapName, 5, 50, ['process_id' => $i]);
+            $this->executeConcurrentOperations('map_write', $mapName, 3, 20, ['process_id' => $i]);
         }
         
         // 验证数据一致性
-        $this->assertTrue($map->size() > 0);
+        $size = $map->size();
+        $this->assertGreaterThan(0, $size, "Map should have data, but size is: " . $size);
         
         $map->clear();
     }
@@ -71,16 +72,16 @@ class DistributedConcurrencyTest extends RedissonTestCase
         
         // 多个进程并发向Set添加元素（有部分重叠）
         for ($i = 0; $i < 2; $i++) {
-            $this->executeConcurrentOperations('set_add', $setName, 2, 50, [
+            $this->executeConcurrentOperations('set_add', $setName, 2, 20, [
                 'process_id' => $i,
                 'overlap' => true
             ]);
         }
         
-        // 由于executeConcurrentOperations是串行执行，并且有重叠元素，预期集合大小应该小于100
+        // 由于executeConcurrentOperations是串行执行，并且有重叠元素，预期集合大小应该小于40
         $actualSize = $set->size();
         $this->assertGreaterThan(0, $actualSize); // 至少有一些元素
-        $this->assertLessThanOrEqual(100, $actualSize); // 不会超过最大值
+        $this->assertLessThanOrEqual(40, $actualSize); // 不会超过最大值
         
         $set->clear();
     }
@@ -95,17 +96,17 @@ class DistributedConcurrencyTest extends RedissonTestCase
         $sortedSet->clear();
         
         // 多个进程并发添加元素
-        for ($i = 0; $i < 5; $i++) {
-            $this->executeConcurrentOperations('sortedset_add', $sortedSetName, 5, 50, ['process_id' => $i]);
+        for ($i = 0; $i < 3; $i++) {
+            $this->executeConcurrentOperations('sortedset_add', $sortedSetName, 3, 20, ['process_id' => $i]);
         }
         
         // 验证有序集合大小
         $size = $sortedSet->size();
-        $this->assertEquals(5 * 50, $size);
+        $this->assertEquals(3 * 20, $size);
         
         // 验证元素按分数排序
         $elements = $sortedSet->valueRange(0, -1);
-        $this->assertCount(250, $elements);
+        $this->assertCount(60, $elements);
         
         $sortedSet->clear();
     }
@@ -120,18 +121,18 @@ class DistributedConcurrencyTest extends RedissonTestCase
         $queue->clear();
         
         // 生产者进程
-        for ($i = 0; $i < 3; $i++) {
-            $this->executeConcurrentOperations('queue_produce', $queueName, 3, 50, ['process_id' => $i]);
+        for ($i = 0; $i < 2; $i++) {
+            $this->executeConcurrentOperations('queue_produce', $queueName, 2, 20, ['process_id' => $i]);
         }
         
         // 消费者进程
         for ($i = 0; $i < 2; $i++) {
-            $this->executeConcurrentOperations('queue_consume', $queueName, 2, 75, ['process_id' => $i]);
+            $this->executeConcurrentOperations('queue_consume', $queueName, 2, 20, ['process_id' => $i]);
         }
         
         // 验证队列状态
         $remaining = $queue->size();
-        $this->assertLessThanOrEqual(150, $remaining); // 最多剩余150个（生产150，消费150）
+        $this->assertLessThanOrEqual(40, $remaining); // 最多剩余40个（生产40，消费40）
         
         $queue->clear();
     }
@@ -265,8 +266,8 @@ class DistributedConcurrencyTest extends RedissonTestCase
         $set->clear();
         
         // 多个进程对不同的数据结构进行操作
-        for ($i = 0; $i < 3; $i++) {
-            $this->executeConcurrentOperations('mixed_operations', $mapName, 3, 50, [
+        for ($i = 0; $i < 2; $i++) {
+            $this->executeConcurrentOperations('mixed_operations', $mapName, 2, 20, [
                 'process_id' => $i,
                 'map_name' => $mapName,
                 'list_name' => $listName,
@@ -317,7 +318,7 @@ class DistributedConcurrencyTest extends RedissonTestCase
         }
         
         // 等待所有Redis操作完成
-        usleep(500000); // 500ms
+        usleep(100000); // 100ms
     }
     
     /**

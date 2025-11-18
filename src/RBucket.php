@@ -111,23 +111,38 @@ class RBucket extends RedisDataStructure
     public function compareAndSet($expect, $update): bool
     {
         return $this->executeWithPool(function ($redis) use ($expect, $update) {
-            $encodedExpect = $this->encodeValue($expect);
+            // 使用特殊标记表示 null 值，因为不同序列化方式对 null 的处理不同
+            $nullMarker = "__REDIPHP_NULL__";
+            $encodedExpect = $expect === null ? $nullMarker : $this->encodeValue($expect);
             $encodedUpdate = $this->encodeValue($update);
 
             $script = <<<LUA
 local value = redis.call('get', KEYS[1])
-if value == false and ARGV[1] == "null" then
-    redis.call('set', KEYS[1], ARGV[2])
-    return 1
-elseif value == ARGV[1] then
-    redis.call('set', KEYS[1], ARGV[2])
-    return 1
+local expect = ARGV[1]
+local update = ARGV[2]
+local nullMarker = ARGV[3]
+
+-- 处理 null 值的情况
+if value == false then
+    -- Redis 中不存在该键
+    if expect == nullMarker then
+        redis.call('set', KEYS[1], update)
+        return 1
+    else
+        return 0
+    end
 else
-    return 0
+    -- Redis 中存在该键
+    if value == expect then
+        redis.call('set', KEYS[1], update)
+        return 1
+    else
+        return 0
+    end
 end
 LUA;
 
-            $result = $redis->eval($script, [$this->name, $encodedExpect, $encodedUpdate], 1);
+            $result = $redis->eval($script, [$this->name, $encodedExpect, $encodedUpdate, $nullMarker], 1);
             return $result === 1;
         });
     }

@@ -10,10 +10,10 @@ use Redis;
  */
 class RCountDownLatch
 {
-    private Redis $redis;
+    private $redis;
     private string $name;
 
-    public function __construct(Redis $redis, string $name)
+    public function __construct($redis, string $name)
     {
         $this->redis = $redis;
         $this->name = $name;
@@ -27,7 +27,9 @@ class RCountDownLatch
      */
     public function trySetCount(int $count): bool
     {
-        $result = $this->redis->set($this->name, $count, ['NX']);
+        $redis = $this->redis->getRedis();
+        $result = $redis->set($this->name, $count, ['NX']);
+        $this->redis->returnRedis($redis);
         return $result !== false;
     }
 
@@ -46,7 +48,9 @@ if value ~= false then
 end
 LUA;
 
-        $this->redis->eval($script, [$this->name], 1);
+        $redis = $this->redis->getRedis();
+        $redis->eval($script, [$this->name], 1);
+        $this->redis->returnRedis($redis);
     }
 
     /**
@@ -56,7 +60,9 @@ LUA;
      */
     public function getCount(): int
     {
-        $value = $this->redis->get($this->name);
+        $redis = $this->redis->getRedis();
+        $value = $redis->get($this->name);
+        $this->redis->returnRedis($redis);
         return $value !== false ? max(0, (int)$value) : 0;
     }
 
@@ -87,6 +93,9 @@ LUA;
      */
     public function delete(): bool
     {
-        return $this->redis->del($this->name) > 0;
+        $redis = $this->redis->getRedis();
+        $result = $redis->del($this->name) > 0;
+        $this->redis->returnRedis($redis);
+        return $result;
     }
 }

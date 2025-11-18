@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/9.5/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+         convertErrorsToExceptions="true"
+         convertNoticesToExceptions="true"
+         convertWarningsToExceptions="true"
+         stopOnFailure="false"
+         verbose="true"
+         cacheResult="false"
+         timeoutForSmallTests="60"
+         timeoutForMediumTests="120"
+         timeoutForLargeTests="300">
+    
+    <testsuites>
+        <testsuite name="快速测试套件">
+            <directory>tests</directory>
+            <exclude>tests/AdvancedConcurrencyIntegrationTest.php</exclude>
+            <exclude>tests/MemoryPressureIntegrationTest.php</exclude>
+        </testsuite>
+    </testsuites>
+    
+    <coverage processUncoveredFiles="false">
+        <include>
+            <directory suffix=".php">src</directory>
+        </include>
+        <exclude>
+            <directory>tests</directory>
+            <directory>vendor</directory>
+        </exclude>
+    </coverage>
+    
+    <php>
+        <env name="REDIS_HOST" value="127.0.0.1"/>
+        <env name="REDIS_PORT" value="6379"/>
+        <env name="REDIS_PASSWORD" value=""/>
+        <env name="TEST_TIMEOUT" value="5"/>
+        <env name="FAST_MODE" value="true"/>
+        <env name="TEST_PARALLEL" value="false"/>
+    </php>
+</phpunit>

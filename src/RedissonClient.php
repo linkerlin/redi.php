@@ -395,7 +395,7 @@ class RedissonClient
      */
     public function getHyperLogLog(string $name): RHyperLogLog
     {
-        return new RHyperLogLog($this, $name);
+        return new RHyperLogLog($this->redis, $name);
     }
 
     /**

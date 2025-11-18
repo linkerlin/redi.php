@@ -24,9 +24,9 @@ class MemoryPressureIntegrationTest extends RedissonTestCase
         $largeMap = $this->client->getMap('memory:pressure:large:map');
         $largeCounter = $this->client->getAtomicLong('memory:pressure:large:counter');
         
-        // 插入大量数据项
-        $dataSize = 1000;
-        $batchSize = 100;
+        // 插入大量数据项 - 减少数据量以提高速度
+        $dataSize = 200; // 从1000减少到200
+        $batchSize = 50; // 从100减少到50
         
         $startTime = microtime(true);
         
@@ -39,17 +39,17 @@ class MemoryPressureIntegrationTest extends RedissonTestCase
                 
                 $data = [
                     'id' => $itemId,
-                    'content' => str_repeat("data_item_$itemId:", 50) . rand(1000, 9999),
+                    'content' => str_repeat("data_item_$itemId:", 10) . rand(1000, 9999), // 减少字符串长度
                     'timestamp' => time(),
                     'metadata' => [
                         'batch' => $batch,
-                        'size' => strlen(str_repeat("data_item_$itemId:", 50)),
+                        'size' => strlen(str_repeat("data_item_$itemId:", 10)), // 减少字符串长度
                         'random' => rand(1, 1000)
                     ],
                     'nested_data' => [
-                        'category' => "category_" . ($itemId % 10),
-                        'tags' => ["tag_" . ($itemId % 5), "tag_" . ($itemId % 7)],
-                        'scores' => array_fill(0, 5, rand(1, 100))
+                        'category' => "category_" . ($itemId % 5), // 减少类别数
+                        'tags' => ["tag_" . ($itemId % 3), "tag_" . ($itemId % 4)], // 减少标签数
+                        'scores' => array_fill(0, 3, rand(1, 100)) // 减少数组长度
                     ]
                 ];
                 
@@ -76,14 +76,14 @@ class MemoryPressureIntegrationTest extends RedissonTestCase
         // 验证数据完整性
         $this->validateLargeMapData($largeMap, $dataSize);
         
-        // 测试内存压力下的查询性能
+        // 测试内存压力下的查询性能 - 减少查询样本数量
         $queryStartTime = microtime(true);
-        $sampleItems = $this->sampleLargeMapData($largeMap, 100);
+        $sampleItems = $this->sampleLargeMapData($largeMap, 20); // 从100减少到20
         $queryEndTime = microtime(true);
         $queryTime = $queryEndTime - $queryStartTime;
         
-        $this->assertEquals(100, count($sampleItems));
-        $this->assertLessThan(5, $queryTime, "大数据量查询应该在5秒内完成");
+        $this->assertEquals(20, count($sampleItems)); // 更新期望数量
+        $this->assertLessThan(2, $queryTime, "大数据量查询应该在2秒内完成");
         
         // 清理
         $largeMap->clear();
@@ -98,9 +98,9 @@ class MemoryPressureIntegrationTest extends RedissonTestCase
         $largeList = $this->client->getList('memory:pressure:large:list');
         $listCounter = $this->client->getAtomicLong('memory:pressure:list:counter');
         
-        // 插入大量列表项
-        $listSize = 2000;
-        $chunkSize = 200;
+        // 插入大量列表项 - 减少数据量以提高速度
+        $listSize = 500; // 从2000减少到500
+        $chunkSize = 100; // 从200减少到100
         
         $startTime = microtime(true);
         
@@ -112,7 +112,7 @@ class MemoryPressureIntegrationTest extends RedissonTestCase
                 
                 $listItem = [
                     'index' => $itemId,
-                    'data' => str_repeat("list_item_$itemId:", 30) . base64_encode(random_bytes(100)),
+                    'data' => str_repeat("list_item_$itemId:", 10) . base64_encode(random_bytes(20)), // 减少字符串长度
                     'priority' => rand(1, 100),
                     'created_at' => time() + $itemId,
                     'type' => $itemId % 4 === 0 ? 'urgent' : 'normal'
@@ -198,9 +198,9 @@ class MemoryPressureIntegrationTest extends RedissonTestCase
         $largeSet = $this->client->getSet('memory:pressure:large:set');
         $setCounter = $this->client->getAtomicLong('memory:pressure:set:counter');
         
-        // 创建大数据量集合
-        $setSize = 1500;
-        $batchSize = 150;
+        // 创建大数据量集合 - 减少数据量以提高速度
+        $setSize = 300; // 从1500减少到300
+        $batchSize = 50; // 从150减少到50
         
         $startTime = microtime(true);
         

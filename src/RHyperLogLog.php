@@ -28,9 +28,14 @@ class RHyperLogLog
      *
      * @param mixed $element The element to add
      * @return bool True if the element was added, false otherwise
+     * @throws \InvalidArgumentException If the element is empty
      */
     public function add($element): bool
     {
+        if (empty($element) && $element !== '0' && $element !== 0) {
+            throw new \InvalidArgumentException('Element cannot be empty');
+        }
+        
         $encoded = $this->encodeValue($element);
         return $this->redis->pfAdd($this->name, [$encoded]) === 1;
     }
@@ -40,11 +45,18 @@ class RHyperLogLog
      *
      * @param array $elements Array of elements to add
      * @return bool True if at least one element was added, false otherwise
+     * @throws \InvalidArgumentException If any element is empty
      */
     public function addAll(array $elements): bool
     {
         if (empty($elements)) {
             return false;
+        }
+
+        foreach ($elements as $element) {
+            if (empty($element) && $element !== '0' && $element !== 0) {
+                throw new \InvalidArgumentException('Element cannot be empty');
+            }
         }
 
         $encodedElements = array_map([$this, 'encodeValue'], $elements);

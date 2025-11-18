@@ -235,46 +235,44 @@ class ReadLock
         // 检查是否已经有写锁存在
         $writeLockName = str_replace(':read', ':write', $this->name);
         
-        // 添加调试输出
-        error_log("[ReadLock::tryLock] name={$this->name}, lockId={$this->lockId}, waitTime={$waitTime}, leaseTime={$leaseTime}");
-        
         return $this->executeWithPool(function(Redis $redis) use ($ttl, $writeLockName, $waitUntil, $waitTime) {
             // 首先检查当前写锁状态（立即检查一次）
             $writeLockExists = $redis->exists($writeLockName);
-            error_log("[ReadLock::tryLock] initial check: writeLockExists={$writeLockExists}, writeLockName={$writeLockName}");
             
             if ($writeLockExists === 0) {
                 // 写锁不存在，可以立即获取读锁
                 $redis->hIncrBy($this->name, $this->lockId, 1);
                 $redis->expire($this->name, $ttl);
-                error_log("[ReadLock::tryLock] acquired read lock immediately");
                 return true;
             }
             
             // 如果等待时间为0，且写锁存在，则直接返回false
             if ($waitTime === 0) {
-                error_log("[ReadLock::tryLock] no wait time and write lock exists, returning false");
                 return false;
             }
+            
+            $retryCount = 0;
+            $baseDelay = 1000; // 1ms
+            $maxDelay = 50000; // 50ms
             
             // 等待指定时间，期间持续检查写锁状态
             while (microtime(true) < $waitUntil) {
                 // 检查写锁是否存在
                 $writeLockExists = $redis->exists($writeLockName);
-                error_log("[ReadLock::tryLock] waiting: writeLockExists={$writeLockExists}, writeLockName={$writeLockName}");
                 if ($writeLockExists === 0) {
                     // 写锁不存在，可以获取读锁
                     $redis->hIncrBy($this->name, $this->lockId, 1);
                     $redis->expire($this->name, $ttl);
-                    error_log("[ReadLock::tryLock] acquired read lock after waiting");
                     return true;
                 }
-                // 写锁仍然存在，继续等待
-                usleep(100000); // Sleep for 100ms
+                
+                // 写锁仍然存在，使用指数退避算法等待
+                $delay = min($baseDelay * pow(2, $retryCount), $maxDelay);
+                usleep($delay);
+                $retryCount++;
             }
             
             // 超时，返回false（不获取读锁）
-            error_log("[ReadLock::tryLock] timeout, returning false");
             return false;
         });
     }
@@ -464,11 +462,18 @@ class WriteLock
         $readLockName = str_replace(':write', ':read', $this->name);
         
         return $this->executeWithPool(function(Redis $redis) use ($ttl, $readLockName, $waitUntil, $waitTime) {
+            $retryCount = 0;
+            $baseDelay = 1000; // 1ms
+            $maxDelay = 50000; // 50ms
+            
             do {
                 // 检查是否已经有读锁存在
                 if ($redis->exists($readLockName) > 0) {
                     if ($waitTime > 0 && microtime(true) < $waitUntil) {
-                        usleep(100000); // Sleep for 100ms
+                        // 使用指数退避算法等待
+                        $delay = min($baseDelay * pow(2, $retryCount), $maxDelay);
+                        usleep($delay);
+                        $retryCount++;
                         continue;
                     }
                     return false;
@@ -479,14 +484,16 @@ class WriteLock
                 if ($currentCount !== false) {
                     $redis->hIncrBy($this->name, $this->lockId, 1);
                     $redis->expire($this->name, $ttl);
-                    error_log("[WriteLock::tryLock] reentrant, ttl=$ttl");
                     return true;
                 }
 
                 // 检查是否已经有其他写锁存在
                 if ($redis->hLen($this->name) > 0) {
                     if ($waitTime > 0 && microtime(true) < $waitUntil) {
-                        usleep(100000); // Sleep for 100ms
+                        // 使用指数退避算法等待
+                        $delay = min($baseDelay * pow(2, $retryCount), $maxDelay);
+                        usleep($delay);
+                        $retryCount++;
                         continue;
                     }
                     return false;
@@ -495,7 +502,6 @@ class WriteLock
                 // 创建新的写锁
                 $redis->hSet($this->name, $this->lockId, 1);
                 $redis->expire($this->name, $ttl);
-                error_log("[WriteLock::tryLock] created new lock, ttl=$ttl, name={$this->name}");
                 return true;
 
             } while (microtime(true) < $waitUntil);

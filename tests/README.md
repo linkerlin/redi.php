@@ -476,3 +476,11 @@ Redi.php 项目包含以下测试文件：
 468. CreditLinkedBackedTokenBondsTest.php - Redis信用挂钩支持代币债券测试
 469. HybridBackedTokenBondsTest.php - Redis混合支持代币债券测试
 470. ContingentConvertibleBackedTokenBondsTest.php - Redis或有可转换支持代币债券测试
+471. DualCurrencyBackedTokenBondsTest.php - Redis双货币支持代币债券测试
+472. RangeAccrualBackedTokenBondsTest.php - Redis区间计息支持代币债券测试
+473. AssetBackedTokenBondsTest.php - Redis资产支持代币债券测试
+474. MortgageBackedTokenBondsTest.php - Redis抵押贷款支持代币债券测试
+475. CallableAssetBackedTokenBondsTest.php - Redis可赎回资产支持代币债券测试
+476. PuttableAssetBackedTokenBondsTest.php - Redis可回售资产支持代币债券测试
+477. ConvertibleAssetBackedTokenBondsTest.php - Redis可转换资产支持代币债券测试
+478. ExtendibleAssetBackedTokenBondsTest.php - Redis可扩展资产支持代币债券测试

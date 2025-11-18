@@ -75,9 +75,14 @@ class RBloomFilter
      *
      * @param mixed $element
      * @return bool
+     * @throws \InvalidArgumentException If the element is empty
      */
     public function add($element): bool
     {
+        if (empty($element) && $element !== '0' && $element !== 0) {
+            throw new \InvalidArgumentException('Element cannot be empty');
+        }
+        
         $this->loadConfig();
         
         // 如果没有配置，使用默认配置初始化

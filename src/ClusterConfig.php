@@ -31,7 +31,7 @@ class ClusterConfig
             'password' => null,
             'persistent' => false,
             'retry_interval' => 100,
-            'cluster_failover' => RedisCluster::FAILOVER_NONE,
+            'cluster_failover' => 0, // RedisCluster::FAILOVER_NONE 的数值表示
         ];
 
         $this->config = array_merge($defaultConfig, $config);
@@ -123,7 +123,7 @@ class ClusterConfig
      */
     public function getClusterFailover(): int
     {
-        return $this->config['cluster_failover'];
+        return $this->config['cluster_failover'] ?? 0; // RedisCluster::FAILOVER_NONE 的数值表示
     }
 
     /**
@@ -148,7 +148,7 @@ class ClusterConfig
             'password' => getenv('REDIS_PASSWORD') ?: null,
             'persistent' => (bool)getenv('REDIS_PERSISTENT'),
             'retry_interval' => (int)(getenv('REDIS_RETRY_INTERVAL') ?: 100),
-            'cluster_failover' => (int)(getenv('REDIS_CLUSTER_FAILOVER') ?: RedisCluster::FAILOVER_NONE),
+            'cluster_failover' => (int)(getenv('REDIS_CLUSTER_FAILOVER') ?: 0), // RedisCluster::FAILOVER_NONE 的数值表示
         ];
 
         return new self($config);
